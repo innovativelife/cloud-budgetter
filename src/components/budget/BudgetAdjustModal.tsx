@@ -14,7 +14,7 @@ interface BudgetAdjustModalProps {
   onClose: () => void;
 }
 
-type ModalTab = 'table' | 'visual';
+type ModalTab = 'visual' | 'table' | 'calcs';
 type VisualField = 'consumption' | 'efficiency';
 
 function computeAnnualCost(serviceBudget: ServiceBudget, service: Service): number {
@@ -402,26 +402,19 @@ export function BudgetAdjustModal({
 
           {/* Main tabs */}
           <div className="flex gap-1 -mb-px">
-            <button
-              onClick={() => setModalTab('visual')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                modalTab === 'visual'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Visual
-            </button>
-            <button
-              onClick={() => setModalTab('table')}
-              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                modalTab === 'table'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Tabular
-            </button>
+            {([['visual', 'Vis Edit'], ['table', 'Tab Edit'], ['calcs', 'Table']] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setModalTab(id)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  modalTab === id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -590,7 +583,6 @@ export function BudgetAdjustModal({
                   label="Monthly Consumption"
                   unit={service.unitType}
                   color={color ?? 'bg-blue-400'}
-                  hoverColor={color ? color.replace('500', '600') : 'bg-blue-500'}
                   min={0}
                   onValueChange={handleValueChange}
                   onCommit={handleCommit}
@@ -605,7 +597,6 @@ export function BudgetAdjustModal({
                   label="Efficiency %"
                   unit="%"
                   color={color ?? 'bg-emerald-400'}
-                  hoverColor={color ? color.replace('500', '600') : 'bg-emerald-500'}
                   min={1}
                   formatValue={(v) => `${v}%`}
                   onValueChange={handleValueChange}
@@ -613,93 +604,94 @@ export function BudgetAdjustModal({
                   onBulkAdjust={handleBulkAdjust}
                 />
               )}
+            </div>
+          )}
 
-              {/* Per-month calculation breakdown */}
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Calculation</div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs tabular-nums">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-1.5 px-2 font-medium text-gray-500 sticky left-0 bg-white min-w-[110px]">
-                          &nbsp;
+          {/* === TABLE (CALCS) TAB === */}
+          {modalTab === 'calcs' && (
+            <div className="px-6 py-5">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs tabular-nums">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-1.5 px-2 font-medium text-gray-500 sticky left-0 bg-white min-w-[110px]">
+                        &nbsp;
+                      </th>
+                      {monthLabels.map((label, i) => (
+                        <th key={i} className="text-right py-1.5 px-2 font-medium text-gray-500 min-w-[80px]">
+                          {label.split(' ')[0].slice(0, 3)}
                         </th>
-                        {monthLabels.map((label, i) => (
-                          <th key={i} className="text-right py-1.5 px-2 font-medium text-gray-500 min-w-[80px]">
-                            {label.split(' ')[0].slice(0, 3)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    <tr>
+                      <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Consumption</td>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                          {localBudget[i].consumption.value.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Unit Cost</td>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <td key={i} className="py-1.5 px-2 text-right text-gray-400">
+                          ${localUnitCost}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Efficiency %</td>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                          {localBudget[i].efficiency.value}%
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Overhead %</td>
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                          {localBudget[i].overhead.value}%
+                        </td>
+                      ))}
+                    </tr>
+                    {service.discountEligible && (
                       <tr>
-                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Consumption</td>
+                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Discount %</td>
                         {Array.from({ length: 12 }, (_, i) => (
                           <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                            {localBudget[i].consumption.value.toLocaleString()}
+                            {localBudget[i].discount.value}%
                           </td>
                         ))}
                       </tr>
-                      <tr>
-                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Unit Cost</td>
-                        {Array.from({ length: 12 }, (_, i) => (
-                          <td key={i} className="py-1.5 px-2 text-right text-gray-400">
-                            ${service.unitCost}
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200">
+                      <td className="py-2 px-2 font-semibold text-gray-800 sticky left-0 bg-white">Cost</td>
+                      {currentMonthlyCosts.map((cost, i) => (
+                        <td key={i} className="py-2 px-2 text-right font-semibold text-gray-800">
+                          {formatCurrency(cost)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-1 px-2 text-gray-500 sticky left-0 bg-white">Change</td>
+                      {currentMonthlyCosts.map((cost, i) => {
+                        const monthDelta = cost - initialMonthlyCosts[i];
+                        return (
+                          <td key={i} className={`py-1 px-2 text-right font-medium ${
+                            monthDelta === 0 ? 'text-gray-300' : monthDelta > 0 ? 'text-red-500' : 'text-green-600'
+                          }`}>
+                            {monthDelta === 0 ? '-' : `${monthDelta > 0 ? '+' : ''}${formatCurrency(monthDelta)}`}
                           </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Efficiency %</td>
-                        {Array.from({ length: 12 }, (_, i) => (
-                          <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                            {localBudget[i].efficiency.value}%
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Overhead %</td>
-                        {Array.from({ length: 12 }, (_, i) => (
-                          <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                            {localBudget[i].overhead.value}%
-                          </td>
-                        ))}
-                      </tr>
-                      {service.discountEligible && (
-                        <tr>
-                          <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Discount %</td>
-                          {Array.from({ length: 12 }, (_, i) => (
-                            <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                              {localBudget[i].discount.value}%
-                            </td>
-                          ))}
-                        </tr>
-                      )}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-gray-200">
-                        <td className="py-2 px-2 font-semibold text-gray-800 sticky left-0 bg-white">Cost</td>
-                        {currentMonthlyCosts.map((cost, i) => (
-                          <td key={i} className="py-2 px-2 text-right font-semibold text-gray-800">
-                            {formatCurrency(cost)}
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="py-1 px-2 text-gray-500 sticky left-0 bg-white">Change</td>
-                        {currentMonthlyCosts.map((cost, i) => {
-                          const monthDelta = cost - initialMonthlyCosts[i];
-                          return (
-                            <td key={i} className={`py-1 px-2 text-right font-medium ${
-                              monthDelta === 0 ? 'text-gray-300' : monthDelta > 0 ? 'text-red-500' : 'text-green-600'
-                            }`}>
-                              {monthDelta === 0 ? '-' : `${monthDelta > 0 ? '+' : ''}${formatCurrency(monthDelta)}`}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+                        );
+                      })}
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
           )}

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import type { ServiceBudget, BudgetFieldKey } from '../../types';
 
 interface DraggableFieldChartProps {
@@ -8,7 +8,6 @@ interface DraggableFieldChartProps {
   label: string;
   unit: string;
   color: string;
-  hoverColor: string;
   min?: number;
   formatValue?: (v: number) => string;
   onValueChange: (monthIndex: number, field: BudgetFieldKey, value: number) => void;
@@ -23,7 +22,6 @@ export function DraggableFieldChart({
   label,
   unit,
   color,
-  hoverColor,
   min = 0,
   formatValue,
   onValueChange,
@@ -37,47 +35,54 @@ export function DraggableFieldChart({
 
   const values = Array.from({ length: 12 }, (_, m) => serviceBudget[m][field].value);
   const maxVal = Math.max(...values, 1);
-  const displayCeiling = Math.max(maxVal * 1.3, 1);
-  const chartHeight = 280;
+  const ceiling = Math.max(maxVal * 1.15, 1);
+  const chartHeight = 240;
 
-  const draggingMonth = useRef<number | null>(null);
+  // Refs to hold latest props so native listeners always see current values
+  const propsRef = useRef({ onValueChange, onCommit, field, min, ceiling });
+  propsRef.current = { onValueChange, onCommit, field, min, ceiling };
 
-  const setValue = useCallback(
-    (monthIndex: number, value: number) => {
-      const clamped = Math.max(min, Math.round(value));
-      onValueChange(monthIndex, field, clamped);
-    },
-    [onValueChange, field, min]
-  );
+  // Mutable drag state
+  const dragRef = useRef<{ monthIndex: number; rect: DOMRect } | null>(null);
 
-  const handlePointerDown = useCallback(
-    (monthIndex: number, e: React.PointerEvent) => {
+  function yToValue(clientY: number, rect: DOMRect) {
+    const { ceiling: ceil, min: minVal } = propsRef.current;
+    const yRatio = 1 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    return Math.max(minVal, Math.round(yRatio * ceil));
+  }
+
+  // Attach native document listeners for move/up during drag
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) return;
       e.preventDefault();
-      draggingMonth.current = monthIndex;
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    []
-  );
-
-  const handlePointerMove = useCallback(
-    (monthIndex: number, e: React.PointerEvent) => {
-      if (draggingMonth.current !== monthIndex) return;
-      const barArea = (e.currentTarget as HTMLElement).closest('[data-bar-area]') as HTMLElement | null;
-      if (!barArea) return;
-      const rect = barArea.getBoundingClientRect();
-      const yRatio = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-      const ceiling = Math.max(maxVal * 1.5, min + 100);
-      setValue(monthIndex, yRatio * ceiling);
-    },
-    [maxVal, setValue, min]
-  );
-
-  const handlePointerUp = useCallback(() => {
-    if (draggingMonth.current !== null) {
-      draggingMonth.current = null;
-      onCommit();
+      const val = yToValue(e.clientY, drag.rect);
+      propsRef.current.onValueChange(drag.monthIndex, propsRef.current.field, val);
     }
-  }, [onCommit]);
+
+    function onUp() {
+      if (dragRef.current) {
+        dragRef.current = null;
+        propsRef.current.onCommit();
+      }
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+  }, []);
+
+  function handlePointerDown(monthIndex: number, e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragRef.current = { monthIndex, rect };
+    const val = yToValue(e.clientY, rect);
+    onValueChange(monthIndex, field, val);
+  }
 
   function handleApplyAdjust() {
     const pct = parseFloat(adjustPct);
@@ -91,42 +96,38 @@ export function DraggableFieldChart({
   const fmt = formatValue ?? ((v: number) => v.toLocaleString());
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
       {/* Chart area */}
-      <div className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between mb-3">
+      <div>
+        <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-semibold text-gray-700">{label}</div>
           <div className="text-[11px] text-gray-400">Drag bars to adjust &middot; {unit}</div>
         </div>
 
-        <div className="flex items-end gap-2 flex-1" style={{ minHeight: chartHeight }}>
+        <div className="flex items-end gap-1.5">
           {values.map((val, monthIdx) => {
-            const barHeight = Math.max((val / displayCeiling) * chartHeight, 2);
+            const barHeight = Math.max((val / ceiling) * chartHeight, 2);
             const isOverridden = serviceBudget[monthIdx][field].isOverridden && monthIdx > 0;
             return (
-              <div key={monthIdx} className="flex-1 flex flex-col items-center justify-end h-full">
+              <div key={monthIdx} className="flex-1 flex flex-col items-center">
                 {/* Value label */}
-                <div className="text-[11px] text-gray-600 mb-1 tabular-nums select-none font-medium">
+                <div className="text-[10px] text-gray-600 mb-0.5 tabular-nums select-none font-medium">
                   {val > 0 ? fmt(val) : ''}
                 </div>
 
-                {/* Draggable bar */}
-                <div className="w-full relative flex-1" data-bar-area>
+                {/* Draggable bar area */}
+                <div
+                  className="w-full relative cursor-ns-resize touch-none select-none"
+                  style={{ height: chartHeight }}
+                  onPointerDown={(e) => handlePointerDown(monthIdx, e)}
+                >
                   <div
-                    className={`absolute bottom-0 left-[12%] right-[12%] rounded-t transition-colors cursor-ns-resize ${
-                      isOverridden ? 'opacity-90' : ''
-                    }`}
-                    style={{
-                      height: Math.min(barHeight, chartHeight),
-                      backgroundColor: isOverridden ? undefined : undefined,
-                    }}
+                    className="absolute bottom-0 left-[12%] right-[12%] rounded-t pointer-events-none"
+                    style={{ height: Math.min(barHeight, chartHeight) }}
                   >
                     <div
-                      className={`w-full h-full rounded-t ${color} hover:${hoverColor}`}
+                      className={`w-full h-full rounded-t ${color}`}
                       style={{ opacity: isOverridden ? 0.75 : 1 }}
-                      onPointerDown={(e) => handlePointerDown(monthIdx, e)}
-                      onPointerMove={(e) => handlePointerMove(monthIdx, e)}
-                      onPointerUp={handlePointerUp}
                     />
                     {isOverridden && (
                       <div className="absolute top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-400 border border-white" title="Custom override" />
@@ -135,7 +136,7 @@ export function DraggableFieldChart({
                 </div>
 
                 {/* Month label */}
-                <div className="text-[11px] text-gray-500 mt-2 select-none font-medium">
+                <div className="text-[10px] text-gray-500 mt-1 select-none font-medium">
                   {monthLabels[monthIdx].split(' ')[0].slice(0, 3)}
                 </div>
               </div>
@@ -145,7 +146,7 @@ export function DraggableFieldChart({
       </div>
 
       {/* Adjustment toolbar */}
-      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-200 flex-wrap">
+      <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-gray-200 flex-wrap">
         <span className="text-xs text-gray-500 font-medium shrink-0">Adjust:</span>
         <select
           value={adjustDir}
