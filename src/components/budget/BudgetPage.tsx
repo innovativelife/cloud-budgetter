@@ -2,33 +2,44 @@ import { useState } from 'react';
 import { useAppState } from '../../context/AppContext';
 import { generateMonthLabels } from '../../utils/months';
 import { BudgetGrid } from './BudgetGrid';
+import { BudgetAdjustModal } from './BudgetAdjustModal';
+import { Select } from '../shared/Select';
 
 const MONTH_OPTIONS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-];
+].map((m, i) => ({ value: String(i), label: m }));
 
 export function BudgetPage() {
-  const { state, dispatch } = useAppState();
+  const { activeModel, dispatch } = useAppState();
+  const services = activeModel?.data.services ?? [];
+  const budgetConfig = activeModel?.data.budgetConfig ?? { startMonth: 0, startYear: 2026 };
+  const budgetData = activeModel?.data.budgetData ?? {};
+
   const [selectedServiceId, setSelectedServiceId] = useState<string>(
-    state.services[0]?.id ?? ''
+    services[0]?.id ?? ''
   );
+  const [showAdjust, setShowAdjust] = useState(false);
 
-  const monthLabels = generateMonthLabels(
-    state.budgetConfig.startMonth,
-    state.budgetConfig.startYear
-  );
+  const monthLabels = generateMonthLabels(budgetConfig.startMonth, budgetConfig.startYear);
 
-  const selectedService = state.services.find((s) => s.id === selectedServiceId);
-  const serviceBudget = selectedService ? state.budgetData[selectedService.id] : null;
+  const selectedService = services.find((s) => s.id === selectedServiceId);
+  const serviceBudget = selectedService ? budgetData[selectedService.id] : null;
 
   // Sync selected service if it was deleted
-  if (selectedServiceId && !selectedService && state.services.length > 0) {
-    setSelectedServiceId(state.services[0].id);
+  if (selectedServiceId && !selectedService && services.length > 0) {
+    setSelectedServiceId(services[0].id);
   }
 
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear + i);
+  const yearOptions = Array.from({ length: 5 }, (_, i) => ({
+    value: String(currentYear + i),
+    label: String(currentYear + i),
+  }));
+
+  const serviceOptions = services.length > 0
+    ? services.map((s) => ({ value: s.id, label: s.name }))
+    : [{ value: '', label: 'No services configured' }];
 
   return (
     <div>
@@ -40,65 +51,62 @@ export function BudgetPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-4 mb-6 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-        <div>
+        <div className="w-40">
           <label className="block text-xs font-medium text-gray-600 mb-1">Start Month</label>
-          <select
-            value={state.budgetConfig.startMonth}
-            onChange={(e) =>
+          <Select
+            value={String(budgetConfig.startMonth)}
+            options={MONTH_OPTIONS}
+            onChange={(v) =>
               dispatch({
                 type: 'SET_BUDGET_CONFIG',
-                payload: { ...state.budgetConfig, startMonth: parseInt(e.target.value) },
+                payload: { ...budgetConfig, startMonth: parseInt(v) },
               })
             }
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {MONTH_OPTIONS.map((m, i) => (
-              <option key={i} value={i}>{m}</option>
-            ))}
-          </select>
+          />
         </div>
-        <div>
+        <div className="w-28">
           <label className="block text-xs font-medium text-gray-600 mb-1">Start Year</label>
-          <select
-            value={state.budgetConfig.startYear}
-            onChange={(e) =>
+          <Select
+            value={String(budgetConfig.startYear)}
+            options={yearOptions}
+            onChange={(v) =>
               dispatch({
                 type: 'SET_BUDGET_CONFIG',
-                payload: { ...state.budgetConfig, startYear: parseInt(e.target.value) },
+                payload: { ...budgetConfig, startYear: parseInt(v) },
               })
             }
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {years.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          />
         </div>
-        <div>
+        <div className="w-56">
           <label className="block text-xs font-medium text-gray-600 mb-1">Service</label>
-          <select
+          <Select
             value={selectedServiceId}
-            onChange={(e) => setSelectedServiceId(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {state.services.length === 0 && (
-              <option value="">No services configured</option>
-            )}
-            {state.services.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+            options={serviceOptions}
+            onChange={setSelectedServiceId}
+            placeholder="Select a service..."
+          />
         </div>
         {selectedService && (
-          <div className="ml-auto text-xs text-gray-500">
-            Unit: <span className="font-medium text-gray-700">{selectedService.unitType}</span>
-            <span className="mx-2 text-gray-300">|</span>
-            Cost/unit: <span className="font-medium text-gray-700">${selectedService.unitCost}</span>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="text-xs text-gray-500">
+              Unit: <span className="font-medium text-gray-700">{selectedService.unitType}</span>
+              <span className="mx-2 text-gray-300">|</span>
+              Cost/unit: <span className="font-medium text-gray-700">${selectedService.unitCost}</span>
+            </div>
+            <button
+              onClick={() => setShowAdjust(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Visual Adjust
+            </button>
           </div>
         )}
       </div>
 
-      {state.services.length === 0 ? (
+      {services.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300">
           <p className="text-gray-500">Configure services first on the Services tab.</p>
         </div>
@@ -122,6 +130,16 @@ export function BudgetPage() {
           </div>
         </div>
       ) : null}
+
+      {showAdjust && selectedService && serviceBudget && (
+        <BudgetAdjustModal
+          serviceId={selectedService.id}
+          service={selectedService}
+          serviceBudget={serviceBudget}
+          monthLabels={monthLabels}
+          onClose={() => setShowAdjust(false)}
+        />
+      )}
     </div>
   );
 }

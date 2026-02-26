@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useAppState } from '../../context/AppContext';
 import { ServiceFormModal } from './ServiceFormModal';
+import { ConfirmModal } from '../shared/ConfirmModal';
 import { formatCurrency } from '../../utils/formatters';
 import type { Service } from '../../types';
 
 export function ServicesPage() {
-  const { state, dispatch } = useAppState();
+  const { activeModel, dispatch } = useAppState();
+  const services = activeModel?.data.services ?? [];
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
 
   function handleAdd() {
     setEditingService(null);
@@ -19,9 +22,10 @@ export function ServicesPage() {
     setShowModal(true);
   }
 
-  function handleDelete(serviceId: string) {
-    if (confirm('Delete this service? Budget data for this service will also be removed.')) {
-      dispatch({ type: 'DELETE_SERVICE', payload: serviceId });
+  function handleConfirmDelete() {
+    if (deletingServiceId) {
+      dispatch({ type: 'DELETE_SERVICE', payload: deletingServiceId });
+      setDeletingServiceId(null);
     }
   }
 
@@ -36,6 +40,10 @@ export function ServicesPage() {
     }
     setShowModal(false);
   }
+
+  const deletingService = deletingServiceId
+    ? services.find((s) => s.id === deletingServiceId)
+    : null;
 
   return (
     <div>
@@ -54,7 +62,7 @@ export function ServicesPage() {
         </button>
       </div>
 
-      {state.services.length === 0 ? (
+      {services.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed border-gray-300">
           <p className="text-gray-500">No services configured yet.</p>
           <button
@@ -79,7 +87,7 @@ export function ServicesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {state.services.map((service) => (
+              {services.map((service) => (
                 <tr key={service.id} className="hover:bg-gray-50">
                   <td className="py-3 px-3 font-medium text-gray-900">{service.name}</td>
                   <td className="py-3 px-3 text-gray-600">{service.unitType}</td>
@@ -105,7 +113,7 @@ export function ServicesPage() {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(service.id)}
+                      onClick={() => setDeletingServiceId(service.id)}
                       className="text-red-600 hover:text-red-700 font-medium"
                     >
                       Delete
@@ -123,6 +131,17 @@ export function ServicesPage() {
           service={editingService}
           onSave={handleSave}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {deletingService && (
+        <ConfirmModal
+          title="Delete Service"
+          message={`Delete "${deletingService.name}"? All budget data for this service will also be removed.`}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeletingServiceId(null)}
         />
       )}
     </div>

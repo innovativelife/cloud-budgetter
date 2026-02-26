@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Cloud shape -->
+  <path d="M16 46h32a8 8 0 0 0 0-16h-.5a12 12 0 0 0-23-5A10 10 0 0 0 14 34a8 8 0 0 0 2 12Z" fill="url(#cloudGrad)" opacity="0.13"/>
+  <path d="M16 46h32a8 8 0 0 0 0-16h-.5a12 12 0 0 0-23-5A10 10 0 0 0 14 34a8 8 0 0 0 2 12Z" stroke="url(#cloudStroke)" stroke-width="2" fill="none"/>
+  <!-- Bar chart bars -->
+  <rect x="20" y="36" width="5" height="8" rx="1.2" fill="url(#bar1)"/>
+  <rect x="27" y="31" width="5" height="13" rx="1.2" fill="url(#bar2)"/>
+  <rect x="34" y="27" width="5" height="17" rx="1.2" fill="url(#bar3)"/>
+  <rect x="41" y="22" width="5" height="22" rx="1.2" fill="url(#bar4)"/>
+  <!-- Trend line -->
+  <path d="M22.5 35 L43.5 21" stroke="#1e40af" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M41 20l3.5.8-1.8 3" fill="#1e40af" opacity="0.5"/>
+  <defs>
+    <linearGradient id="cloudGrad" x1="8" y1="18" x2="56" y2="48">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="cloudStroke" x1="8" y1="18" x2="56" y2="48">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="bar1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="bar2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="bar3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="bar4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+</svg>

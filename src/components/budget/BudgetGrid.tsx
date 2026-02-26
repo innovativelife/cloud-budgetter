@@ -69,7 +69,7 @@ export function BudgetGrid({ serviceId, service, serviceBudget, monthLabels }: B
   function getFieldSummary(field: BudgetFieldKey): string {
     const values = Array.from({ length: 12 }, (_, m) => serviceBudget[m][field].value);
     if (field === 'consumption') {
-      return values.reduce((s, v) => s + v, 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+      return values.reduce((s, v) => s + v, 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
     }
     // For percentages, show average
     const avg = values.reduce((s, v) => s + v, 0) / 12;
@@ -105,7 +105,7 @@ export function BudgetGrid({ serviceId, service, serviceBudget, monthLabels }: B
         <div className="flex-1 overflow-x-auto">
           <div className="inline-flex min-w-full">
             {Array.from({ length: 12 }, (_, monthIdx) => (
-              <div key={monthIdx} className="w-[120px] shrink-0 border-r border-gray-100 last:border-r-0">
+              <div key={monthIdx} className="w-[150px] shrink-0 border-r border-gray-100 last:border-r-0">
                 {/* Month header */}
                 <div className="h-11 flex items-center justify-center border-b border-gray-200 bg-gray-50">
                   <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
@@ -164,7 +164,7 @@ export function BudgetGrid({ serviceId, service, serviceBudget, monthLabels }: B
         </div>
 
         {/* Pinned right column - totals */}
-        <div className="shrink-0 w-32 border-l border-gray-300 bg-gray-50 z-10">
+        <div className="shrink-0 w-52 border-l border-gray-300 bg-gray-50 z-10">
           {/* Header cell */}
           <div className="h-11 flex items-center justify-center border-b border-gray-200">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Summary</span>

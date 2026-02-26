@@ -30,11 +30,33 @@ export interface BudgetConfig {
   startYear: number;
 }
 
-export interface AppState {
-  version: number;
+export interface ModelData {
   services: Service[];
   budgetConfig: BudgetConfig;
   budgetData: BudgetData;
+}
+
+export interface Version {
+  number: number;
+  name: string;
+  timestamp: number;
+  shared: boolean;
+  data: ModelData;
+}
+
+export interface BudgetModel {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  data: ModelData;
+  versions: Version[];
+}
+
+export interface AppState {
+  schemaVersion: number;
+  models: BudgetModel[];
+  activeModelId: string | null;
 }
 
 export type TabId = 'services' | 'budget' | 'summary';

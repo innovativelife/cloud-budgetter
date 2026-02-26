@@ -1,9 +1,11 @@
 import type { TabId } from '../../types';
+import { ModelManager } from '../models/ModelManager';
+import { Logo } from '../shared/Logo';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'services', label: 'Services' },
-  { id: 'budget', label: 'Budget' },
   { id: 'summary', label: 'Summary' },
+  { id: 'budget', label: 'Data Entry' },
+  { id: 'services', label: 'Services' },
 ];
 
 interface TabNavigationProps {
@@ -13,10 +15,13 @@ interface TabNavigationProps {
 
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
   return (
-    <nav className="sticky top-0 z-10 bg-white border-b border-gray-200">
+    <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center h-14">
-          <h1 className="text-lg font-semibold text-gray-900 mr-8">Cloud Budgetter</h1>
+          <div className="flex items-center gap-2 mr-8">
+            <Logo className="w-14 h-14" />
+            <h1 className="text-lg font-semibold text-gray-900">Cloud Budgetter</h1>
+          </div>
           <div className="flex space-x-1">
             {TABS.map((tab) => (
               <button
@@ -31,6 +36,10 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
                 {tab.label}
               </button>
             ))}
+          </div>
+
+          <div className="ml-auto">
+            <ModelManager />
           </div>
         </div>
       </div>
