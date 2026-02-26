@@ -5,13 +5,8 @@ import { generateMonthLabels } from '../../utils/months';
 import { formatCurrency } from '../../utils/formatters';
 import { BudgetAdjustModal } from '../budget/BudgetAdjustModal';
 import { ServiceFormModal } from '../services/ServiceFormModal';
+import { SERVICE_COLORS, getServiceColor } from '../../utils/serviceColors';
 import type { Service } from '../../types';
-
-const SERVICE_COLORS = [
-  'bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500',
-  'bg-violet-500', 'bg-cyan-500', 'bg-orange-500', 'bg-teal-500',
-  'bg-pink-500', 'bg-indigo-500', 'bg-lime-500', 'bg-fuchsia-500',
-];
 
 type SummaryTab = 'chart' | 'annual' | 'monthly';
 
@@ -64,9 +59,7 @@ export function SummaryPage() {
     setShowAddService(false);
   }
 
-  const heading = (
-    <h2 className="text-xl font-semibold text-gray-900 mb-4">Budget Summary</h2>
-  );
+  const heading = null;
 
   const addServiceModal = showAddService && (
     <ServiceFormModal
@@ -101,12 +94,10 @@ export function SummaryPage() {
       {heading}
 
       {/* Grand Total */}
-      <div className="mb-6 p-6 bg-blue-50 rounded-lg border border-blue-200">
-        <div className="text-sm text-blue-600 font-medium">Annual Budget Total</div>
-        <div className="text-3xl font-bold text-blue-900 mt-1">{formatCurrency(grandTotal)}</div>
-        <div className="text-sm text-blue-600 mt-1">
-          Avg. {formatCurrency(grandTotal / 12)} / month
-        </div>
+      <div className="mb-4 px-4 py-2.5 bg-blue-50 rounded-lg border border-blue-200 flex items-center gap-4">
+        <span className="text-xs text-blue-600 font-medium">Annual Total</span>
+        <span className="text-xl font-bold text-blue-900">{formatCurrency(grandTotal)}</span>
+        <span className="text-xs text-blue-500">Avg. {formatCurrency(grandTotal / 12)} / mo</span>
       </div>
 
       {/* Sub-tabs */}
@@ -172,9 +163,7 @@ export function SummaryPage() {
               {costByMonth.map((monthTotal, monthIdx) => {
                 return (
                   <div key={monthIdx} className="flex-1 flex flex-col items-center">
-                    <div className="text-[10px] text-gray-600 mb-1 whitespace-nowrap">
-                      {monthTotal > 0 ? formatCurrency(monthTotal) : '\u00A0'}
-                    </div>
+                    <div className="h-3 mb-1" />
                     <div className="w-full h-72 flex flex-col justify-end">
                       {services.map((service, svcIdx) => {
                         const cost = costGrid[service.id]?.[monthIdx] ?? 0;
@@ -184,7 +173,8 @@ export function SummaryPage() {
                         return (
                           <div
                             key={service.id}
-                            className={`w-full ${SERVICE_COLORS[svcIdx % SERVICE_COLORS.length]} ${isFirst ? 'rounded-t' : ''}`}
+                            onClick={() => setAdjustServiceId(service.id)}
+                            className={`w-full cursor-pointer hover:opacity-80 transition-opacity ${SERVICE_COLORS[svcIdx % SERVICE_COLORS.length]} ${isFirst ? 'rounded-t' : ''}`}
                             style={{ height: `${Math.max(heightPct, 0.5)}%` }}
                             title={`${service.name}: ${formatCurrency(cost)}`}
                           />
@@ -192,6 +182,9 @@ export function SummaryPage() {
                       })}
                     </div>
                     <div className="text-[10px] text-gray-500 mt-1">{monthLabels[monthIdx].split(' ')[0]}</div>
+                    <div className="text-[10px] text-gray-700 font-medium tabular-nums whitespace-nowrap">
+                      {monthTotal > 0 ? formatCurrency(monthTotal) : '\u00A0'}
+                    </div>
                   </div>
                 );
               })}
@@ -204,11 +197,11 @@ export function SummaryPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-3 font-medium text-gray-600">Service</th>
-                <th className="text-right py-2 px-3 font-medium text-gray-600">Annual Total</th>
-                <th className="text-right py-2 px-3 font-medium text-gray-600">Monthly Avg</th>
-                <th className="text-right py-2 px-3 font-medium text-gray-600">% of Total</th>
+              <tr className="bg-blue-100">
+                <th className="text-left py-2.5 px-3 text-[11px] font-semibold text-blue-800 uppercase tracking-wider">Service</th>
+                <th className="text-right py-2.5 px-3 text-[11px] font-semibold text-blue-800 uppercase tracking-wider">Annual Total</th>
+                <th className="text-right py-2.5 px-3 text-[11px] font-semibold text-blue-800 uppercase tracking-wider">Monthly Avg</th>
+                <th className="text-right py-2.5 px-3 text-[11px] font-semibold text-blue-800 uppercase tracking-wider">% of Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -249,47 +242,81 @@ export function SummaryPage() {
         <div className="overflow-x-auto">
           <table className="text-xs w-full">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-2 px-2 font-medium text-gray-600 sticky left-0 bg-white min-w-[120px]">
+              <tr className="bg-blue-100">
+                <th className="text-left py-2.5 px-2 text-[11px] font-semibold text-blue-800 uppercase tracking-wider sticky left-0 bg-blue-100 min-w-[120px]">
                   Service
                 </th>
                 {monthLabels.map((label, i) => (
-                  <th key={i} className="text-right py-2 px-2 font-medium text-gray-600 min-w-[90px]">
+                  <th key={i} className="text-right py-2.5 px-2 text-[11px] font-semibold text-blue-800 uppercase tracking-wider min-w-[90px]">
                     {label}
                   </th>
                 ))}
-                <th className="text-right py-2 px-2 font-medium text-gray-600 min-w-[100px] sticky right-0 bg-white">Total</th>
+                <th className="text-right py-2.5 px-2 text-[11px] font-semibold text-blue-800 uppercase tracking-wider min-w-[100px] sticky right-0 bg-blue-100">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {services.map((service, idx) => (
-                <tr key={service.id} className="hover:bg-gray-50">
-                  <td className="py-2 px-2 font-medium text-gray-900 sticky left-0 bg-white">
-                    <button
-                      onClick={() => setAdjustServiceId(service.id)}
-                      className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
-                    >
-                      <span className={`w-2.5 h-2.5 rounded-sm inline-block shrink-0 ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
-                      <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
-                    </button>
-                  </td>
-                  {(costGrid[service.id] ?? []).map((cost, i) => (
-                    <td key={i} className="py-2 px-2 text-right text-gray-700">
-                      {formatCurrency(cost)}
+              {services.map((service, idx) => {
+                const costs = costGrid[service.id] ?? [];
+                const minCost = Math.min(...costs);
+                const maxCost = Math.max(...costs);
+                const range = maxCost - minCost;
+                return (
+                  <tr key={service.id}>
+                    <td className="py-2 px-2 font-medium text-gray-900 sticky left-0 bg-white">
+                      <button
+                        onClick={() => setAdjustServiceId(service.id)}
+                        className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-sm inline-block shrink-0 ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
+                        <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
+                      </button>
                     </td>
-                  ))}
-                  <td className="py-2 px-2 text-right font-semibold sticky right-0 bg-white">
-                    {formatCurrency(costByService[service.id] ?? 0)}
-                  </td>
-                </tr>
-              ))}
+                    {costs.map((cost, i) => {
+                      const t = range > 0 ? (cost - minCost) / range : 0;
+                      // green (low) -> yellow (mid) -> red (high)
+                      const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
+                      const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
+                      const b = 220;
+                      return (
+                        <td
+                          key={i}
+                          className="py-2 px-2 text-right text-gray-700"
+                          style={{ backgroundColor: cost > 0 ? `rgb(${r},${g},${b})` : undefined }}
+                        >
+                          {formatCurrency(cost)}
+                        </td>
+                      );
+                    })}
+                    <td className="py-2 px-2 text-right font-semibold sticky right-0 bg-white">
+                      {formatCurrency(costByService[service.id] ?? 0)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-300 font-semibold">
                 <td className="py-2 px-2 sticky left-0 bg-white">Total</td>
-                {costByMonth.map((cost, i) => (
-                  <td key={i} className="py-2 px-2 text-right">{formatCurrency(cost)}</td>
-                ))}
+                {(() => {
+                  const minTotal = Math.min(...costByMonth);
+                  const maxTotal = Math.max(...costByMonth);
+                  const totalRange = maxTotal - minTotal;
+                  return costByMonth.map((cost, i) => {
+                    const t = totalRange > 0 ? (cost - minTotal) / totalRange : 0;
+                    const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
+                    const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
+                    const b = 220;
+                    return (
+                      <td
+                        key={i}
+                        className="py-2 px-2 text-right"
+                        style={{ backgroundColor: cost > 0 ? `rgb(${r},${g},${b})` : undefined }}
+                      >
+                        {formatCurrency(cost)}
+                      </td>
+                    );
+                  });
+                })()}
                 <td className="py-2 px-2 text-right sticky right-0 bg-white">{formatCurrency(grandTotal)}</td>
               </tr>
             </tfoot>
@@ -298,7 +325,8 @@ export function SummaryPage() {
       )}
 
       {adjustServiceId && (() => {
-        const svc = services.find((s) => s.id === adjustServiceId);
+        const svcIdx = services.findIndex((s) => s.id === adjustServiceId);
+        const svc = svcIdx >= 0 ? services[svcIdx] : null;
         const sb = svc ? budgetData[svc.id] : null;
         if (!svc || !sb) return null;
         return (
@@ -307,6 +335,7 @@ export function SummaryPage() {
             service={svc}
             serviceBudget={sb}
             monthLabels={monthLabels}
+            color={getServiceColor(svcIdx)}
             onClose={() => setAdjustServiceId(null)}
           />
         );

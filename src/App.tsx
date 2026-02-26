@@ -3,14 +3,13 @@ import { AppProvider, useAppState } from './context/AppContext';
 import { TabNavigation } from './components/layout/TabNavigation';
 import { PageContainer } from './components/layout/PageContainer';
 import { ServicesPage } from './components/services/ServicesPage';
-import { BudgetPage } from './components/budget/BudgetPage';
 import { SummaryPage } from './components/summary/SummaryPage';
 import { WelcomeModal } from './components/shared/WelcomeModal';
 import type { TabId } from './types';
 
 function AppContent() {
   const { state, dispatch } = useAppState();
-  const [activeTab, setActiveTab] = useState<TabId>('summary');
+  const [activeTab, setActiveTab] = useState<TabId>('home');
   const [dismissed, setDismissed] = useState(false);
 
   const isFirstTime =
@@ -33,8 +32,7 @@ function AppContent() {
       <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
       <PageContainer>
         {activeTab === 'services' && <ServicesPage />}
-        {activeTab === 'budget' && <BudgetPage />}
-        {activeTab === 'summary' && <SummaryPage />}
+        {activeTab === 'home' && <SummaryPage />}
       </PageContainer>
       {isFirstTime && <WelcomeModal onComplete={handleWelcomeComplete} />}
     </div>

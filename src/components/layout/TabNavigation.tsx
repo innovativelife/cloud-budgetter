@@ -3,8 +3,7 @@ import { ModelManager } from '../models/ModelManager';
 import { Logo } from '../shared/Logo';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'summary', label: 'Summary' },
-  { id: 'budget', label: 'Data Entry' },
+  { id: 'home', label: 'Home' },
   { id: 'services', label: 'Services' },
 ];
 

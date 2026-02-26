@@ -1,4 +1,4 @@
-import { useState, useCallback, useReducer, useEffect } from 'react';
+import { useState, useCallback, useReducer, useEffect, useMemo } from 'react';
 import { useAppState } from '../../context/AppContext';
 import { DraggableFieldChart } from './DraggableFieldChart';
 import { calculateMonthCost } from '../../utils/calculations';
@@ -10,10 +10,12 @@ interface BudgetAdjustModalProps {
   service: Service;
   serviceBudget: ServiceBudget;
   monthLabels: string[];
+  color?: string;
   onClose: () => void;
 }
 
-type AdjustTab = 'consumption' | 'efficiency';
+type ModalTab = 'table' | 'visual';
+type VisualField = 'consumption' | 'efficiency';
 
 function computeAnnualCost(serviceBudget: ServiceBudget, service: Service): number {
   let total = 0;
@@ -63,34 +65,67 @@ interface EditState {
 
 type EditAction =
   | { type: 'SET_VALUE'; monthIndex: number; field: BudgetFieldKey; value: number }
-  | { type: 'BULK_ADJUST'; field: BudgetFieldKey; fromMonth: number; multiplier: number; min: number }
+  | { type: 'SET_FIELD_COMMIT'; monthIndex: number; field: BudgetFieldKey; value: number }
+  | { type: 'CLEAR_OVERRIDE'; monthIndex: number; field: BudgetFieldKey }
+  | { type: 'BULK_ADJUST'; field: BudgetFieldKey; fromMonth: number; multiplier: number; min: number; compound: boolean }
   | { type: 'COMMIT' }
   | { type: 'UNDO' }
   | { type: 'REDO' };
+
+function applyFieldChange(current: ServiceBudget, monthIndex: number, field: BudgetFieldKey, value: number): ServiceBudget {
+  const next = deepCloneBudget(current);
+  next[monthIndex][field] = { value, isOverridden: monthIndex > 0 };
+  if (monthIndex === 0) {
+    for (let i = 1; i < 12; i++) {
+      if (!next[i][field].isOverridden) {
+        next[i][field] = { value, isOverridden: false };
+      }
+    }
+  }
+  return next;
+}
 
 function editReducer(state: EditState, action: EditAction): EditState {
   switch (action.type) {
     case 'SET_VALUE': {
       const { monthIndex, field, value } = action;
       const preChange = state.preChange ?? deepCloneBudget(state.current);
-      const next = deepCloneBudget(state.current);
-      next[monthIndex][field] = { value, isOverridden: monthIndex > 0 };
-      if (monthIndex === 0) {
-        for (let i = 1; i < 12; i++) {
-          if (!next[i][field].isOverridden) {
-            next[i][field] = { value, isOverridden: false };
-          }
-        }
-      }
+      const next = applyFieldChange(state.current, monthIndex, field, value);
       return { ...state, current: next, preChange };
     }
+    case 'SET_FIELD_COMMIT': {
+      const { monthIndex, field, value } = action;
+      const snapshot = deepCloneBudget(state.current);
+      const next = applyFieldChange(state.current, monthIndex, field, value);
+      return {
+        current: next,
+        undoStack: [...state.undoStack, snapshot],
+        redoStack: [],
+        preChange: null,
+      };
+    }
+    case 'CLEAR_OVERRIDE': {
+      const { monthIndex, field } = action;
+      if (monthIndex === 0) return state;
+      const snapshot = deepCloneBudget(state.current);
+      const next = deepCloneBudget(state.current);
+      const sourceValue = next[0][field].value;
+      next[monthIndex][field] = { value: sourceValue, isOverridden: false };
+      return {
+        current: next,
+        undoStack: [...state.undoStack, snapshot],
+        redoStack: [],
+        preChange: null,
+      };
+    }
     case 'BULK_ADJUST': {
-      const { field, fromMonth, multiplier, min } = action;
+      const { field, fromMonth, multiplier, min, compound } = action;
       const snapshot = deepCloneBudget(state.current);
       const next = deepCloneBudget(state.current);
       for (let m = fromMonth; m < 12; m++) {
-        const current = next[m][field].value;
-        const newVal = Math.max(min, Math.round(current * multiplier));
+        const base = next[m][field].value;
+        const compoundMultiplier = compound ? Math.pow(multiplier, m - fromMonth + 1) : multiplier;
+        const newVal = Math.max(min, Math.round(base * compoundMultiplier));
         next[m][field] = { value: newVal, isOverridden: m > 0 };
       }
       return {
@@ -134,15 +169,35 @@ function editReducer(state: EditState, action: EditAction): EditState {
   }
 }
 
+// --- Table grid fields ---
+
+interface FieldDef {
+  key: BudgetFieldKey;
+  label: string;
+  min: number;
+  step: string;
+}
+
+const FIELDS: FieldDef[] = [
+  { key: 'consumption', label: 'Consumption', min: 0, step: 'any' },
+  { key: 'efficiency', label: 'Efficiency %', min: 1, step: '1' },
+  { key: 'overhead', label: 'Overhead %', min: 0, step: '1' },
+  { key: 'discount', label: 'Discount %', min: 0, step: '1' },
+];
+
 export function BudgetAdjustModal({
   serviceId,
   service,
   serviceBudget,
   monthLabels,
+  color,
   onClose,
 }: BudgetAdjustModalProps) {
   const { dispatch } = useAppState();
-  const [activeTab, setActiveTab] = useState<AdjustTab>('consumption');
+  const [modalTab, setModalTab] = useState<ModalTab>('visual');
+  const [visualField, setVisualField] = useState<VisualField>('consumption');
+  const [unitCostInput, setUnitCostInput] = useState(String(service.unitCost));
+  const localUnitCost = parseFloat(unitCostInput) || 0;
 
   const [editState, editDispatch] = useReducer(editReducer, serviceBudget, (sb) => ({
     current: deepCloneBudget(sb),
@@ -155,17 +210,21 @@ export function BudgetAdjustModal({
   const canUndo = editState.undoStack.length > 0;
   const canRedo = editState.redoStack.length > 0;
 
-  // Capture the cost at modal open for delta display
+  const localService = useMemo(
+    () => ({ ...service, unitCost: localUnitCost }),
+    [service, localUnitCost]
+  );
+
   const [initialCost] = useState(() => computeAnnualCost(serviceBudget, service));
   const [initialMonthlyCosts] = useState(() => computeMonthlyCosts(serviceBudget, service));
 
-  // Live cost from the local buffer
-  const currentCost = computeAnnualCost(localBudget, service);
-  const currentMonthlyCosts = computeMonthlyCosts(localBudget, service);
+  const currentCost = computeAnnualCost(localBudget, localService);
+  const currentMonthlyCosts = computeMonthlyCosts(localBudget, localService);
 
   const delta = currentCost - initialCost;
   const deltaPct = initialCost !== 0 ? (delta / initialCost) * 100 : 0;
 
+  // Visual tab callbacks
   const handleValueChange = useCallback((monthIndex: number, field: BudgetFieldKey, value: number) => {
     editDispatch({ type: 'SET_VALUE', monthIndex, field, value });
   }, []);
@@ -174,8 +233,8 @@ export function BudgetAdjustModal({
     editDispatch({ type: 'COMMIT' });
   }, []);
 
-  const handleBulkAdjust = useCallback((field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number) => {
-    editDispatch({ type: 'BULK_ADJUST', field, fromMonth, multiplier, min });
+  const handleBulkAdjust = useCallback((field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number, compound: boolean) => {
+    editDispatch({ type: 'BULK_ADJUST', field, fromMonth, multiplier, min, compound });
   }, []);
 
   const handleUndo = useCallback(() => {
@@ -186,7 +245,6 @@ export function BudgetAdjustModal({
     editDispatch({ type: 'REDO' });
   }, []);
 
-  // Keyboard shortcuts: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z = redo
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
@@ -207,12 +265,49 @@ export function BudgetAdjustModal({
       type: 'SET_SERVICE_BUDGET',
       payload: { serviceId, serviceBudget: localBudget },
     });
+    if (localUnitCost !== service.unitCost) {
+      dispatch({
+        type: 'UPDATE_SERVICE',
+        payload: { ...service, unitCost: localUnitCost },
+      });
+    }
     onClose();
   }
 
   function handleCancel() {
     onClose();
   }
+
+  // Table tab: track raw input while editing
+  const [editingCell, setEditingCell] = useState<{ month: number; field: BudgetFieldKey; raw: string } | null>(null);
+
+  function handleTableChange(monthIndex: number, field: BudgetFieldKey, rawValue: string) {
+    setEditingCell({ month: monthIndex, field, raw: rawValue });
+    const value = parseFloat(rawValue);
+    if (!isNaN(value)) {
+      editDispatch({ type: 'SET_FIELD_COMMIT', monthIndex, field, value });
+    }
+  }
+
+  function handleTableBlur(monthIndex: number, field: BudgetFieldKey) {
+    if (editingCell?.month === monthIndex && editingCell?.field === field) {
+      // If left empty, reset to 0
+      if (editingCell.raw === '' || isNaN(parseFloat(editingCell.raw))) {
+        editDispatch({ type: 'SET_FIELD_COMMIT', monthIndex, field, value: 0 });
+      }
+      setEditingCell(null);
+    }
+  }
+
+
+  const visibleFields = FIELDS.filter(
+    (f) => f.key !== 'discount' || service.discountEligible
+  );
+
+  const annualTotal = useMemo(
+    () => currentMonthlyCosts.reduce((s, c) => s + c, 0),
+    [currentMonthlyCosts]
+  );
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={handleCancel}>
@@ -224,8 +319,25 @@ export function BudgetAdjustModal({
         <div className="px-6 pt-5 pb-0 border-b border-gray-200 shrink-0">
           <div className="flex items-center justify-between mb-1">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Visual Adjust</h2>
-              <p className="text-sm text-gray-500">{service.name}</p>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                {color && <span className={`w-3.5 h-3.5 rounded-sm inline-block shrink-0 ${color}`} />}
+                {service.name}
+              </h2>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span>Unit: <span className="font-medium text-gray-700">{service.unitType}</span></span>
+                <span className="text-gray-300">|</span>
+                <span className="flex items-center gap-1">Cost/unit: $
+                  <input
+                    type="number"
+                    value={unitCostInput}
+                    onChange={(e) => setUnitCostInput(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    min="0"
+                    step="any"
+                    className="w-20 border border-gray-300 rounded px-1.5 py-0.5 text-xs font-medium text-gray-700 text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
@@ -288,152 +400,309 @@ export function BudgetAdjustModal({
             </div>
           </div>
 
-          {/* Tabs */}
+          {/* Main tabs */}
           <div className="flex gap-1 -mb-px">
             <button
-              onClick={() => setActiveTab('consumption')}
+              onClick={() => setModalTab('visual')}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'consumption'
+                modalTab === 'visual'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Consumption
+              Visual
             </button>
             <button
-              onClick={() => setActiveTab('efficiency')}
+              onClick={() => setModalTab('table')}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'efficiency'
-                  ? 'border-emerald-500 text-emerald-600'
+                modalTab === 'table'
+                  ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Efficiency
+              Tabular
             </button>
           </div>
         </div>
 
-        {/* Chart content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {activeTab === 'consumption' && (
-            <DraggableFieldChart
-              serviceBudget={localBudget}
-              monthLabels={monthLabels}
-              field="consumption"
-              label="Monthly Consumption"
-              unit={service.unitType}
-              color="bg-blue-400"
-              hoverColor="bg-blue-500"
-              min={0}
-              onValueChange={handleValueChange}
-              onCommit={handleCommit}
-              onBulkAdjust={handleBulkAdjust}
-            />
-          )}
-          {activeTab === 'efficiency' && (
-            <DraggableFieldChart
-              serviceBudget={localBudget}
-              monthLabels={monthLabels}
-              field="efficiency"
-              label="Efficiency %"
-              unit="%"
-              color="bg-emerald-400"
-              hoverColor="bg-emerald-500"
-              min={1}
-              formatValue={(v) => `${v}%`}
-              onValueChange={handleValueChange}
-              onCommit={handleCommit}
-              onBulkAdjust={handleBulkAdjust}
-            />
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {/* === TABLE TAB === */}
+          {modalTab === 'table' && (
+            <div className="flex flex-col h-full">
+              <div className="flex shrink-0">
+                {/* Pinned left column */}
+                <div className="shrink-0 w-32 border-r border-gray-200 bg-gray-50 z-10">
+                  <div className="h-9 flex items-center px-3 bg-blue-100">
+                    <span className="text-[11px] font-semibold text-blue-800 uppercase tracking-wider">Field</span>
+                  </div>
+                  {visibleFields.map((f) => (
+                    <div key={f.key} className="h-10 flex items-center px-3 border-b border-gray-100">
+                      <span className="text-xs font-medium text-gray-700">{f.label}</span>
+                    </div>
+                  ))}
+                  <div className="h-10 flex items-center px-3 bg-blue-50">
+                    <span className="text-xs font-semibold text-blue-800">Cost</span>
+                  </div>
+                </div>
+
+                {/* Scrollable month columns */}
+                <div className="flex-1 overflow-x-auto">
+                  <div className="inline-flex min-w-full">
+                    {Array.from({ length: 12 }, (_, monthIdx) => (
+                      <div key={monthIdx} className="w-[120px] shrink-0 border-r border-gray-100 last:border-r-0">
+                        <div className="h-9 flex items-center justify-center bg-blue-100">
+                          <span className="text-[11px] font-semibold text-blue-800 uppercase tracking-wider">
+                            {monthLabels[monthIdx]}
+                          </span>
+                        </div>
+                        {visibleFields.map((f, fieldIdx) => {
+                          const fieldData = localBudget[monthIdx][f.key];
+                          const isEditing = editingCell?.month === monthIdx && editingCell?.field === f.key;
+                          return (
+                            <div key={f.key} className="h-10 flex items-center px-1 border-b border-gray-100">
+                              <input
+                                type="number"
+                                tabIndex={fieldIdx * 12 + monthIdx + 1}
+                                value={isEditing ? editingCell.raw : fieldData.value}
+                                onChange={(e) => handleTableChange(monthIdx, f.key, e.target.value)}
+                                onFocus={(e) => {
+                                  setEditingCell({ month: monthIdx, field: f.key, raw: String(fieldData.value) });
+                                  e.target.select();
+                                }}
+                                onBlur={() => handleTableBlur(monthIdx, f.key)}
+                                min={f.min}
+                                step={f.step}
+                                className="w-full border border-gray-200 bg-white rounded px-1.5 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                          );
+                        })}
+                        {(() => {
+                          const cost = currentMonthlyCosts[monthIdx];
+                          const costs = currentMonthlyCosts;
+                          const minC = Math.min(...costs);
+                          const maxC = Math.max(...costs);
+                          const range = maxC - minC;
+                          const t = range > 0 ? (cost - minC) / range : 0;
+                          const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
+                          const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
+                          const b = 220;
+                          return (
+                            <div className="h-10 flex items-center justify-end px-2" style={{ backgroundColor: cost > 0 ? `rgb(${r},${g},${b})` : undefined }}>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {formatCurrency(cost)}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pinned right column */}
+                <div className="shrink-0 w-36 border-l border-gray-300 bg-gray-50 z-10">
+                  <div className="h-9 flex items-center justify-center bg-blue-100">
+                    <span className="text-[11px] font-semibold text-blue-800 uppercase tracking-wider">Summary</span>
+                  </div>
+                  {visibleFields.map((f) => {
+                    const values = Array.from({ length: 12 }, (_, m) => localBudget[m][f.key].value);
+                    const summary = f.key === 'consumption'
+                      ? values.reduce((s, v) => s + v, 0).toLocaleString('en-US', { maximumFractionDigits: 0 })
+                      : (values.reduce((s, v) => s + v, 0) / 12).toFixed(1);
+                    const summaryLabel = f.key === 'consumption' ? 'Total' : 'Avg';
+                    return (
+                      <div key={f.key} className="h-10 flex items-center justify-end px-3 border-b border-gray-100">
+                        <span className="text-[10px] text-gray-400 mr-1.5">{summaryLabel}</span>
+                        <span className="text-xs font-medium text-gray-700">{summary}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="h-10 flex items-center justify-end px-3 bg-blue-100">
+                    <span className="text-xs font-bold text-blue-900">{formatCurrency(annualTotal)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mini bar chart */}
+              {(() => {
+                const maxCost = Math.max(...currentMonthlyCosts, 1);
+                return (
+                  <div className="flex-1 min-h-0 px-4 py-4 border-t border-gray-200">
+                    <div className="flex items-end gap-2 h-full">
+                      {currentMonthlyCosts.map((cost, i) => {
+                        const heightPct = (cost / maxCost) * 100;
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                            <div className="text-[9px] text-gray-500 mb-0.5 tabular-nums">
+                              {cost > 0 ? formatCurrency(cost) : ''}
+                            </div>
+                            <div
+                              className={`w-full rounded-t ${color || 'bg-blue-400'}`}
+                              style={{ height: `${Math.max(heightPct, 1)}%`, opacity: 0.7 }}
+                            />
+                            <div className="text-[9px] text-gray-400 mt-1">
+                              {monthLabels[i].split(' ')[0].slice(0, 3)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           )}
 
-          {/* Per-month calculation breakdown */}
-          <div className="mt-6 pt-4 border-t border-gray-200">
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Calculation</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs tabular-nums">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-1.5 px-2 font-medium text-gray-500 sticky left-0 bg-white min-w-[110px]">
-                      &nbsp;
-                    </th>
-                    {monthLabels.map((label, i) => (
-                      <th key={i} className="text-right py-1.5 px-2 font-medium text-gray-500 min-w-[80px]">
-                        {label.split(' ')[0].slice(0, 3)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  <tr>
-                    <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Consumption</td>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                        {localBudget[i].consumption.value.toLocaleString()}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Unit Cost</td>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <td key={i} className="py-1.5 px-2 text-right text-gray-400">
-                        ${service.unitCost}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Efficiency %</td>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                        {localBudget[i].efficiency.value}%
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Overhead %</td>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                        {localBudget[i].overhead.value}%
-                      </td>
-                    ))}
-                  </tr>
-                  {service.discountEligible && (
-                    <tr>
-                      <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Discount %</td>
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <td key={i} className="py-1.5 px-2 text-right text-gray-700">
-                          {localBudget[i].discount.value}%
-                        </td>
-                      ))}
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-200">
-                    <td className="py-2 px-2 font-semibold text-gray-800 sticky left-0 bg-white">Cost</td>
-                    {currentMonthlyCosts.map((cost, i) => (
-                      <td key={i} className="py-2 px-2 text-right font-semibold text-gray-800">
-                        {formatCurrency(cost)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-1 px-2 text-gray-500 sticky left-0 bg-white">Change</td>
-                    {currentMonthlyCosts.map((cost, i) => {
-                      const monthDelta = cost - initialMonthlyCosts[i];
-                      return (
-                        <td key={i} className={`py-1 px-2 text-right font-medium ${
-                          monthDelta === 0 ? 'text-gray-300' : monthDelta > 0 ? 'text-red-500' : 'text-green-600'
-                        }`}>
-                          {monthDelta === 0 ? '-' : `${monthDelta > 0 ? '+' : ''}${formatCurrency(monthDelta)}`}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tfoot>
-              </table>
+          {/* === VISUAL TAB === */}
+          {modalTab === 'visual' && (
+            <div className="px-6 py-5">
+              {/* Visual sub-tabs */}
+              <div className="flex gap-1.5 mb-4">
+                <button
+                  onClick={() => setVisualField('consumption')}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    visualField === 'consumption'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Consumption
+                </button>
+                <button
+                  onClick={() => setVisualField('efficiency')}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    visualField === 'efficiency'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Efficiency
+                </button>
+              </div>
+
+              {visualField === 'consumption' && (
+                <DraggableFieldChart
+                  serviceBudget={localBudget}
+                  monthLabels={monthLabels}
+                  field="consumption"
+                  label="Monthly Consumption"
+                  unit={service.unitType}
+                  color={color ?? 'bg-blue-400'}
+                  hoverColor={color ? color.replace('500', '600') : 'bg-blue-500'}
+                  min={0}
+                  onValueChange={handleValueChange}
+                  onCommit={handleCommit}
+                  onBulkAdjust={handleBulkAdjust}
+                />
+              )}
+              {visualField === 'efficiency' && (
+                <DraggableFieldChart
+                  serviceBudget={localBudget}
+                  monthLabels={monthLabels}
+                  field="efficiency"
+                  label="Efficiency %"
+                  unit="%"
+                  color={color ?? 'bg-emerald-400'}
+                  hoverColor={color ? color.replace('500', '600') : 'bg-emerald-500'}
+                  min={1}
+                  formatValue={(v) => `${v}%`}
+                  onValueChange={handleValueChange}
+                  onCommit={handleCommit}
+                  onBulkAdjust={handleBulkAdjust}
+                />
+              )}
+
+              {/* Per-month calculation breakdown */}
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Monthly Calculation</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs tabular-nums">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-1.5 px-2 font-medium text-gray-500 sticky left-0 bg-white min-w-[110px]">
+                          &nbsp;
+                        </th>
+                        {monthLabels.map((label, i) => (
+                          <th key={i} className="text-right py-1.5 px-2 font-medium text-gray-500 min-w-[80px]">
+                            {label.split(' ')[0].slice(0, 3)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      <tr>
+                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Consumption</td>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                            {localBudget[i].consumption.value.toLocaleString()}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Unit Cost</td>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <td key={i} className="py-1.5 px-2 text-right text-gray-400">
+                            ${service.unitCost}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Efficiency %</td>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                            {localBudget[i].efficiency.value}%
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Overhead %</td>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                            {localBudget[i].overhead.value}%
+                          </td>
+                        ))}
+                      </tr>
+                      {service.discountEligible && (
+                        <tr>
+                          <td className="py-1.5 px-2 text-gray-600 sticky left-0 bg-white">Discount %</td>
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <td key={i} className="py-1.5 px-2 text-right text-gray-700">
+                              {localBudget[i].discount.value}%
+                            </td>
+                          ))}
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-200">
+                        <td className="py-2 px-2 font-semibold text-gray-800 sticky left-0 bg-white">Cost</td>
+                        {currentMonthlyCosts.map((cost, i) => (
+                          <td key={i} className="py-2 px-2 text-right font-semibold text-gray-800">
+                            {formatCurrency(cost)}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-1 px-2 text-gray-500 sticky left-0 bg-white">Change</td>
+                        {currentMonthlyCosts.map((cost, i) => {
+                          const monthDelta = cost - initialMonthlyCosts[i];
+                          return (
+                            <td key={i} className={`py-1 px-2 text-right font-medium ${
+                              monthDelta === 0 ? 'text-gray-300' : monthDelta > 0 ? 'text-red-500' : 'text-green-600'
+                            }`}>
+                              {monthDelta === 0 ? '-' : `${monthDelta > 0 ? '+' : ''}${formatCurrency(monthDelta)}`}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}

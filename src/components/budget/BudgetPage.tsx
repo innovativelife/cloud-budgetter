@@ -4,6 +4,7 @@ import { generateMonthLabels } from '../../utils/months';
 import { BudgetGrid } from './BudgetGrid';
 import { BudgetAdjustModal } from './BudgetAdjustModal';
 import { Select } from '../shared/Select';
+import { getServiceColor } from '../../utils/serviceColors';
 
 const MONTH_OPTIONS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -137,6 +138,7 @@ export function BudgetPage() {
           service={selectedService}
           serviceBudget={serviceBudget}
           monthLabels={monthLabels}
+          color={getServiceColor(services.findIndex((s) => s.id === selectedService.id))}
           onClose={() => setShowAdjust(false)}
         />
       )}

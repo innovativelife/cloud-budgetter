@@ -13,7 +13,7 @@ interface DraggableFieldChartProps {
   formatValue?: (v: number) => string;
   onValueChange: (monthIndex: number, field: BudgetFieldKey, value: number) => void;
   onCommit: () => void;
-  onBulkAdjust: (field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number) => void;
+  onBulkAdjust: (field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number, compound: boolean) => void;
 }
 
 export function DraggableFieldChart({
@@ -33,6 +33,7 @@ export function DraggableFieldChart({
   const [adjustPct, setAdjustPct] = useState('');
   const [adjustFrom, setAdjustFrom] = useState('0');
   const [adjustDir, setAdjustDir] = useState<'reduce' | 'increase'>('reduce');
+  const [adjustMode, setAdjustMode] = useState<'once' | 'compound'>('once');
 
   const values = Array.from({ length: 12 }, (_, m) => serviceBudget[m][field].value);
   const maxVal = Math.max(...values, 1);
@@ -83,7 +84,7 @@ export function DraggableFieldChart({
     if (isNaN(pct) || pct <= 0) return;
     const fromMonth = parseInt(adjustFrom);
     const multiplier = adjustDir === 'reduce' ? 1 - pct / 100 : 1 + pct / 100;
-    onBulkAdjust(field, fromMonth, multiplier, min);
+    onBulkAdjust(field, fromMonth, multiplier, min, adjustMode === 'compound');
     setAdjustPct('');
   }
 
@@ -144,7 +145,7 @@ export function DraggableFieldChart({
       </div>
 
       {/* Adjustment toolbar */}
-      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-200">
+      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-200 flex-wrap">
         <span className="text-xs text-gray-500 font-medium shrink-0">Adjust:</span>
         <select
           value={adjustDir}
@@ -167,6 +168,14 @@ export function DraggableFieldChart({
           />
           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
         </div>
+        <select
+          value={adjustMode}
+          onChange={(e) => setAdjustMode(e.target.value as 'once' | 'compound')}
+          className="border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="once">one-off</option>
+          <option value="compound">per month</option>
+        </select>
         <span className="text-xs text-gray-500 shrink-0">from</span>
         <select
           value={adjustFrom}

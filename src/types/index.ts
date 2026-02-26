@@ -59,6 +59,6 @@ export interface AppState {
   activeModelId: string | null;
 }
 
-export type TabId = 'services' | 'budget' | 'summary';
+export type TabId = 'services' | 'home';
 
 export type BudgetFieldKey = 'consumption' | 'efficiency' | 'overhead' | 'discount';
