@@ -5,8 +5,15 @@ import { generateMonthLabels } from '../../utils/months';
 import { formatCurrency } from '../../utils/formatters';
 import { BudgetAdjustModal } from '../budget/BudgetAdjustModal';
 import { ServiceFormModal } from '../services/ServiceFormModal';
+import type { InitialBudgetSeed } from '../services/ServiceFormModal';
 import { SERVICE_COLORS, getServiceColor } from '../../utils/serviceColors';
 import type { Service } from '../../types';
+
+const FILL_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#f43f5e',
+  '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6',
+  '#ec4899', '#6366f1', '#84cc16', '#d946ef',
+];
 
 type SummaryTab = 'chart' | 'annual' | 'monthly';
 
@@ -54,8 +61,8 @@ export function SummaryPage() {
     return { costGrid: grid, costByService: byService, costByMonth: byMonth, grandTotal: total };
   }, [services, budgetData]);
 
-  function handleAddService(data: Omit<Service, 'id' | 'createdAt'>) {
-    dispatch({ type: 'ADD_SERVICE', payload: data });
+  function handleAddService(data: Omit<Service, 'id' | 'createdAt'>, seed?: InitialBudgetSeed) {
+    dispatch({ type: 'ADD_SERVICE', payload: data, seed });
     setShowAddService(false);
   }
 
@@ -87,7 +94,28 @@ export function SummaryPage() {
     );
   }
 
-  const maxMonthCost = Math.max(...costByMonth, 1);
+  const deltaByMonth = costByMonth.map((cost, i) => i === 0 ? 0 : cost - costByMonth[i - 1]);
+
+  // green (low) -> yellow (mid) -> red (high)
+  function heatColor(value: number, min: number, max: number): string | undefined {
+    const range = max - min;
+    if (range <= 0 || value <= 0) return undefined;
+    const t = (value - min) / range;
+    const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
+    const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
+    return `rgb(${r},${g},220)`;
+  }
+
+  // green (negative/good) -> neutral -> red (positive/bad) for deltas
+  function deltaColor(value: number, minD: number, maxD: number): string | undefined {
+    if (value === 0 && minD === 0 && maxD === 0) return undefined;
+    const range = maxD - minD;
+    if (range === 0) return undefined;
+    const t = (value - minD) / range;
+    const r = Math.round(220 + 25 * t);
+    const g = Math.round(240 - 20 * t);
+    return `rgb(${r},${g},220)`;
+  }
 
   return (
     <div>
@@ -110,7 +138,7 @@ export function SummaryPage() {
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Chart
+          Forecast
         </button>
         <button
           onClick={() => setActiveTab('annual')}
@@ -120,7 +148,7 @@ export function SummaryPage() {
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Annual
+          Breakdown
         </button>
         <button
           onClick={() => setActiveTab('monthly')}
@@ -130,13 +158,78 @@ export function SummaryPage() {
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Monthly
+          Timeline
         </button>
       </div>
 
-      {activeTab === 'chart' && (
+      {activeTab === 'chart' && (() => {
+        const minMonth = Math.min(...costByMonth);
+        const maxMonth = Math.max(...costByMonth);
+        const deltas = deltaByMonth.slice(1);
+        const minDelta = Math.min(...deltas);
+        const maxDelta = Math.max(...deltas);
+
+        // Area chart geometry
+        const chartW = 800;
+        const chartH = 288;
+        const padL = 60;
+        const padR = 10;
+        const padT = 10;
+        const padB = 4;
+        const plotW = chartW - padL - padR;
+        const plotH = chartH - padT - padB;
+        const yMax = Math.max(...costByMonth, 1);
+
+        // Build cumulative stacks per month
+        const stacks: number[][] = Array.from({ length: 12 }, () => [0]);
+        for (const service of services) {
+          for (let m = 0; m < 12; m++) {
+            const prev = stacks[m][stacks[m].length - 1];
+            stacks[m].push(prev + (costGrid[service.id]?.[m] ?? 0));
+          }
+        }
+
+        const xForMonth = (m: number) => padL + (m / 11) * plotW;
+        const yForValue = (v: number) => padT + plotH - (v / yMax) * plotH;
+
+        // Monotone cubic spline — attempt a Catmull-Rom-style smooth path through points
+        function smoothLine(pts: [number, number][]): string {
+          if (pts.length < 2) return '';
+          if (pts.length === 2) return `M${pts[0][0]},${pts[0][1]}L${pts[1][0]},${pts[1][1]}`;
+          let d = `M${pts[0][0]},${pts[0][1]}`;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(i - 1, 0)];
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const p3 = pts[Math.min(i + 2, pts.length - 1)];
+            const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+            const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+            const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+            const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+            d += `C${cp1x},${cp1y},${cp2x},${cp2y},${p2[0]},${p2[1]}`;
+          }
+          return d;
+        }
+
+        // Y-axis ticks — choose a round interval based on data magnitude
+        const niceIntervals = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000, 5000000];
+        const targetTicks = 5;
+        const rawInterval = yMax / targetTicks;
+        const tickInterval = niceIntervals.find(n => n >= rawInterval) ?? Math.ceil(rawInterval / 1000000) * 1000000;
+        const yTicks: number[] = [];
+        for (let v = 0; v <= yMax; v += tickInterval) {
+          yTicks.push(v);
+        }
+        // Compact label: $1K, $10K, $1.5M etc.
+        function compactCurrency(v: number): string {
+          if (v === 0) return '$0';
+          if (v >= 1000000) return `$${(v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1)}M`;
+          if (v >= 1000) return `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K`;
+          return `$${v}`;
+        }
+
+        return (
         <div>
-          {/* Stacked Bar Chart */}
           <div className="mb-8">
             {/* Legend */}
             <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -158,32 +251,91 @@ export function SummaryPage() {
               </button>
             </div>
 
-            {/* Chart */}
-            <div className="flex items-end gap-2 px-2">
-              {costByMonth.map((monthTotal, monthIdx) => {
+            {/* Area Chart */}
+            <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full" style={{ aspectRatio: `${chartW} / ${chartH}` }}>
+              {/* Horizontal grid lines */}
+              {yTicks.map((tick, i) => {
+                const y = yForValue(tick);
                 return (
-                  <div key={monthIdx} className="flex-1 flex flex-col items-center">
-                    <div className="h-3 mb-1" />
-                    <div className="w-full h-72 flex flex-col justify-end">
-                      {services.map((service, svcIdx) => {
-                        const cost = costGrid[service.id]?.[monthIdx] ?? 0;
-                        if (cost <= 0) return null;
-                        const heightPct = (cost / maxMonthCost) * 100;
-                        const isFirst = svcIdx === services.findIndex((s) => (costGrid[s.id]?.[monthIdx] ?? 0) > 0);
-                        return (
-                          <div
-                            key={service.id}
-                            onClick={() => setAdjustServiceId(service.id)}
-                            className={`w-full cursor-pointer hover:opacity-80 transition-opacity ${SERVICE_COLORS[svcIdx % SERVICE_COLORS.length]} ${isFirst ? 'rounded-t' : ''}`}
-                            style={{ height: `${Math.max(heightPct, 0.5)}%` }}
-                            title={`${service.name}: ${formatCurrency(cost)}`}
-                          />
-                        );
-                      })}
-                    </div>
+                  <g key={i}>
+                    <line x1={padL} y1={y} x2={chartW - padR} y2={y} stroke="#6b7280" strokeWidth={0.5} strokeDasharray="4 3" opacity={0.4} />
+                    <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#6b7280">
+                      {compactCurrency(tick)}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Stacked areas — render bottom-to-top (last service on top) */}
+              {services.map((service, svcIdx) => {
+                const layerIdx = svcIdx + 1;
+                const topPts: [number, number][] = Array.from({ length: 12 }, (_, m) =>
+                  [xForMonth(m), yForValue(stacks[m][layerIdx])]
+                );
+                const bottomPts: [number, number][] = Array.from({ length: 12 }, (_, m) =>
+                  [xForMonth(11 - m), yForValue(stacks[11 - m][svcIdx])]
+                );
+                const topD = smoothLine(topPts);
+                const bottomD = smoothLine(bottomPts);
+                // Connect top curve to bottom curve to form a closed area
+                const areaD = `${topD}L${bottomPts[0][0]},${bottomPts[0][1]}${bottomD.slice(bottomD.indexOf('C'))}Z`;
+                return (
+                  <path
+                    key={service.id}
+                    d={areaD}
+                    fill={FILL_COLORS[svcIdx % FILL_COLORS.length]}
+                    fillOpacity={0.75}
+                    stroke={FILL_COLORS[svcIdx % FILL_COLORS.length]}
+                    strokeWidth={1}
+                    className="cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={() => setAdjustServiceId(service.id)}
+                  >
+                    <title>{service.name}: {formatCurrency(costByService[service.id] ?? 0)} / yr</title>
+                  </path>
+                );
+              }).reverse()}
+
+              {/* Vertical month markers — drawn over areas so they're visible */}
+              {Array.from({ length: 12 }, (_, m) => (
+                <line key={m} x1={xForMonth(m)} y1={padT} x2={xForMonth(m)} y2={padT + plotH} stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" opacity={0.6} />
+              ))}
+
+              {/* Total line on top */}
+              <path
+                d={smoothLine(costByMonth.map((cost, m): [number, number] => [xForMonth(m), yForValue(cost)]))}
+                fill="none"
+                stroke="#1e3a5f"
+                strokeWidth={2}
+                strokeLinejoin="round"
+              />
+            </svg>
+
+            {/* Month labels, totals, deltas — positioned to match SVG data points */}
+            <div className="relative" style={{ height: '3.25rem' }}>
+              {costByMonth.map((monthTotal, monthIdx) => {
+                const delta = deltaByMonth[monthIdx];
+                const xPct = (xForMonth(monthIdx) / chartW) * 100;
+                return (
+                  <div
+                    key={monthIdx}
+                    className="absolute flex flex-col items-center"
+                    style={{ left: `${xPct}%`, transform: 'translateX(-50%)' }}
+                  >
                     <div className="text-[10px] text-gray-500 mt-1">{monthLabels[monthIdx].split(' ')[0]}</div>
-                    <div className="text-[10px] text-gray-700 font-medium tabular-nums whitespace-nowrap">
+                    <div
+                      className="text-[10px] text-gray-700 font-medium tabular-nums whitespace-nowrap rounded px-0.5"
+                      style={{ backgroundColor: heatColor(monthTotal, minMonth, maxMonth) }}
+                    >
                       {monthTotal > 0 ? formatCurrency(monthTotal) : '\u00A0'}
+                    </div>
+                    <div
+                      className="text-[10px] tabular-nums whitespace-nowrap rounded px-0.5 mt-0.5"
+                      style={{
+                        backgroundColor: monthIdx > 0 ? deltaColor(delta, minDelta, maxDelta) : undefined,
+                        color: monthIdx === 0 ? 'transparent' : delta > 0 ? '#b91c1c' : delta < 0 ? '#15803d' : '#6b7280',
+                      }}
+                    >
+                      {monthIdx === 0 ? '\u00A0' : `${delta >= 0 ? '+' : ''}${formatCurrency(delta)}`}
                     </div>
                   </div>
                 );
@@ -191,9 +343,15 @@ export function SummaryPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
-      {activeTab === 'annual' && (
+      {activeTab === 'annual' && (() => {
+        const svcTotals = services.map(s => costByService[s.id] ?? 0);
+        const minSvc = Math.min(...svcTotals);
+        const maxSvc = Math.max(...svcTotals);
+        const svcRange = maxSvc - minSvc;
+        return (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -208,8 +366,13 @@ export function SummaryPage() {
               {services.map((service, idx) => {
                 const svcTotal = costByService[service.id] ?? 0;
                 const pct = grandTotal > 0 ? (svcTotal / grandTotal) * 100 : 0;
+                const t = svcRange > 0 ? (svcTotal - minSvc) / svcRange : 0;
+                const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
+                const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
+                const b = 220;
+                const heatBg = svcTotal > 0 ? `rgb(${r},${g},${b})` : undefined;
                 return (
-                  <tr key={service.id} className="hover:bg-gray-50">
+                  <tr key={service.id}>
                     <td className="py-2 px-3 font-medium text-gray-900">
                       <button
                         onClick={() => setAdjustServiceId(service.id)}
@@ -219,9 +382,9 @@ export function SummaryPage() {
                         <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
                       </button>
                     </td>
-                    <td className="py-2 px-3 text-right">{formatCurrency(svcTotal)}</td>
-                    <td className="py-2 px-3 text-right text-gray-600">{formatCurrency(svcTotal / 12)}</td>
-                    <td className="py-2 px-3 text-right text-gray-600">{pct.toFixed(1)}%</td>
+                    <td className="py-2 px-3 text-right" style={{ backgroundColor: heatBg }}>{formatCurrency(svcTotal)}</td>
+                    <td className="py-2 px-3 text-right text-gray-700" style={{ backgroundColor: heatBg }}>{formatCurrency(svcTotal / 12)}</td>
+                    <td className="py-2 px-3 text-right text-gray-700" style={{ backgroundColor: heatBg }}>{pct.toFixed(1)}%</td>
                   </tr>
                 );
               })}
@@ -236,7 +399,8 @@ export function SummaryPage() {
             </tfoot>
           </table>
         </div>
-      )}
+        );
+      })()}
 
       {activeTab === 'monthly' && (
         <div className="overflow-x-auto">
@@ -295,30 +459,46 @@ export function SummaryPage() {
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t-2 border-gray-300 font-semibold">
-                <td className="py-2 px-2 sticky left-0 bg-white">Total</td>
-                {(() => {
-                  const minTotal = Math.min(...costByMonth);
-                  const maxTotal = Math.max(...costByMonth);
-                  const totalRange = maxTotal - minTotal;
-                  return costByMonth.map((cost, i) => {
-                    const t = totalRange > 0 ? (cost - minTotal) / totalRange : 0;
-                    const r = t < 0.5 ? Math.round(220 + (240 - 220) * (t * 2)) : 245;
-                    const g = t < 0.5 ? 240 : Math.round(240 - (240 - 220) * ((t - 0.5) * 2));
-                    const b = 220;
-                    return (
-                      <td
-                        key={i}
-                        className="py-2 px-2 text-right"
-                        style={{ backgroundColor: cost > 0 ? `rgb(${r},${g},${b})` : undefined }}
-                      >
-                        {formatCurrency(cost)}
-                      </td>
-                    );
-                  });
-                })()}
-                <td className="py-2 px-2 text-right sticky right-0 bg-white">{formatCurrency(grandTotal)}</td>
-              </tr>
+              {(() => {
+                const minTotal = Math.min(...costByMonth);
+                const maxTotal = Math.max(...costByMonth);
+                const deltas = deltaByMonth.slice(1);
+                const minDelta = Math.min(...deltas);
+                const maxDelta = Math.max(...deltas);
+                return (
+                  <>
+                    <tr className="border-t-2 border-gray-300 font-semibold">
+                      <td className="py-2 px-2 sticky left-0 bg-white">Total</td>
+                      {costByMonth.map((cost, i) => (
+                        <td
+                          key={i}
+                          className="py-2 px-2 text-right"
+                          style={{ backgroundColor: heatColor(cost, minTotal, maxTotal) }}
+                        >
+                          {formatCurrency(cost)}
+                        </td>
+                      ))}
+                      <td className="py-2 px-2 text-right sticky right-0 bg-white">{formatCurrency(grandTotal)}</td>
+                    </tr>
+                    <tr className="font-medium text-xs">
+                      <td className="py-1.5 px-2 sticky left-0 bg-white text-gray-500">Delta</td>
+                      {deltaByMonth.map((delta, i) => (
+                        <td
+                          key={i}
+                          className="py-1.5 px-2 text-right"
+                          style={{
+                            backgroundColor: i > 0 ? deltaColor(delta, minDelta, maxDelta) : undefined,
+                            color: i === 0 ? '#9ca3af' : delta > 0 ? '#b91c1c' : delta < 0 ? '#15803d' : '#6b7280',
+                          }}
+                        >
+                          {i === 0 ? '\u2014' : `${delta >= 0 ? '+' : ''}${formatCurrency(delta)}`}
+                        </td>
+                      ))}
+                      <td className="py-1.5 px-2 text-right sticky right-0 bg-white" />
+                    </tr>
+                  </>
+                );
+              })()}
             </tfoot>
           </table>
         </div>

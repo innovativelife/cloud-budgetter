@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppState } from '../../context/AppContext';
 import { ServiceFormModal } from './ServiceFormModal';
+import type { InitialBudgetSeed } from './ServiceFormModal';
 import { ConfirmModal } from '../shared/ConfirmModal';
 import { formatCurrency } from '../../utils/formatters';
 import { getServiceColor } from '../../utils/serviceColors';
@@ -30,14 +31,14 @@ export function ServicesPage() {
     }
   }
 
-  function handleSave(data: Omit<Service, 'id' | 'createdAt'>) {
+  function handleSave(data: Omit<Service, 'id' | 'createdAt'>, seed?: InitialBudgetSeed) {
     if (editingService) {
       dispatch({
         type: 'UPDATE_SERVICE',
         payload: { ...data, id: editingService.id, createdAt: editingService.createdAt },
       });
     } else {
-      dispatch({ type: 'ADD_SERVICE', payload: data });
+      dispatch({ type: 'ADD_SERVICE', payload: data, seed });
     }
     setShowModal(false);
   }

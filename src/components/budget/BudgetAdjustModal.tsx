@@ -56,11 +56,25 @@ function deepCloneBudget(sb: ServiceBudget): ServiceBudget {
 
 // --- Local editing state with undo/redo as a single reducer ---
 
+interface EditSnapshot {
+  budget: ServiceBudget;
+  unitCost: number;
+}
+
 interface EditState {
   current: ServiceBudget;
-  undoStack: ServiceBudget[];
-  redoStack: ServiceBudget[];
-  preChange: ServiceBudget | null;
+  unitCost: number;
+  undoStack: EditSnapshot[];
+  redoStack: EditSnapshot[];
+  preChange: EditSnapshot | null;
+}
+
+function snapshot(state: EditState): EditSnapshot {
+  return { budget: deepCloneBudget(state.current), unitCost: state.unitCost };
+}
+
+function restoreSnapshot(state: EditState, snap: EditSnapshot): EditState {
+  return { ...state, current: snap.budget, unitCost: snap.unitCost };
 }
 
 type EditAction =
@@ -68,6 +82,7 @@ type EditAction =
   | { type: 'SET_FIELD_COMMIT'; monthIndex: number; field: BudgetFieldKey; value: number }
   | { type: 'CLEAR_OVERRIDE'; monthIndex: number; field: BudgetFieldKey }
   | { type: 'BULK_ADJUST'; field: BudgetFieldKey; fromMonth: number; multiplier: number; min: number; compound: boolean }
+  | { type: 'SET_UNIT_COST'; value: number }
   | { type: 'COMMIT' }
   | { type: 'UNDO' }
   | { type: 'REDO' };
@@ -89,17 +104,18 @@ function editReducer(state: EditState, action: EditAction): EditState {
   switch (action.type) {
     case 'SET_VALUE': {
       const { monthIndex, field, value } = action;
-      const preChange = state.preChange ?? deepCloneBudget(state.current);
+      const preChange = state.preChange ?? snapshot(state);
       const next = applyFieldChange(state.current, monthIndex, field, value);
       return { ...state, current: next, preChange };
     }
     case 'SET_FIELD_COMMIT': {
       const { monthIndex, field, value } = action;
-      const snapshot = deepCloneBudget(state.current);
+      const snap = snapshot(state);
       const next = applyFieldChange(state.current, monthIndex, field, value);
       return {
+        ...state,
         current: next,
-        undoStack: [...state.undoStack, snapshot],
+        undoStack: [...state.undoStack, snap],
         redoStack: [],
         preChange: null,
       };
@@ -107,20 +123,21 @@ function editReducer(state: EditState, action: EditAction): EditState {
     case 'CLEAR_OVERRIDE': {
       const { monthIndex, field } = action;
       if (monthIndex === 0) return state;
-      const snapshot = deepCloneBudget(state.current);
+      const snap = snapshot(state);
       const next = deepCloneBudget(state.current);
       const sourceValue = next[0][field].value;
       next[monthIndex][field] = { value: sourceValue, isOverridden: false };
       return {
+        ...state,
         current: next,
-        undoStack: [...state.undoStack, snapshot],
+        undoStack: [...state.undoStack, snap],
         redoStack: [],
         preChange: null,
       };
     }
     case 'BULK_ADJUST': {
       const { field, fromMonth, multiplier, min, compound } = action;
-      const snapshot = deepCloneBudget(state.current);
+      const snap = snapshot(state);
       const next = deepCloneBudget(state.current);
       for (let m = fromMonth; m < 12; m++) {
         const base = next[m][field].value;
@@ -129,8 +146,19 @@ function editReducer(state: EditState, action: EditAction): EditState {
         next[m][field] = { value: newVal, isOverridden: m > 0 };
       }
       return {
+        ...state,
         current: next,
-        undoStack: [...state.undoStack, snapshot],
+        undoStack: [...state.undoStack, snap],
+        redoStack: [],
+        preChange: null,
+      };
+    }
+    case 'SET_UNIT_COST': {
+      const snap = snapshot(state);
+      return {
+        ...state,
+        unitCost: action.value,
+        undoStack: [...state.undoStack, snap],
         redoStack: [],
         preChange: null,
       };
@@ -138,7 +166,7 @@ function editReducer(state: EditState, action: EditAction): EditState {
     case 'COMMIT': {
       if (!state.preChange) return state;
       return {
-        current: state.current,
+        ...state,
         undoStack: [...state.undoStack, state.preChange],
         redoStack: [],
         preChange: null,
@@ -149,9 +177,9 @@ function editReducer(state: EditState, action: EditAction): EditState {
       const newUndo = [...state.undoStack];
       const prev = newUndo.pop()!;
       return {
-        current: prev,
+        ...restoreSnapshot(state, prev),
         undoStack: newUndo,
-        redoStack: [...state.redoStack, deepCloneBudget(state.current)],
+        redoStack: [...state.redoStack, snapshot(state)],
         preChange: null,
       };
     }
@@ -160,8 +188,8 @@ function editReducer(state: EditState, action: EditAction): EditState {
       const newRedo = [...state.redoStack];
       const next = newRedo.pop()!;
       return {
-        current: next,
-        undoStack: [...state.undoStack, deepCloneBudget(state.current)],
+        ...restoreSnapshot(state, next),
+        undoStack: [...state.undoStack, snapshot(state)],
         redoStack: newRedo,
         preChange: null,
       };
@@ -197,14 +225,21 @@ export function BudgetAdjustModal({
   const [modalTab, setModalTab] = useState<ModalTab>('visual');
   const [visualField, setVisualField] = useState<VisualField>('consumption');
   const [unitCostInput, setUnitCostInput] = useState(String(service.unitCost));
-  const localUnitCost = parseFloat(unitCostInput) || 0;
 
   const [editState, editDispatch] = useReducer(editReducer, serviceBudget, (sb) => ({
     current: deepCloneBudget(sb),
+    unitCost: service.unitCost,
     undoStack: [],
     redoStack: [],
     preChange: null,
   }));
+
+  const localUnitCost = editState.unitCost;
+
+  // Sync text input when undo/redo changes unitCost
+  useEffect(() => {
+    setUnitCostInput(String(editState.unitCost));
+  }, [editState.unitCost]);
 
   const localBudget = editState.current;
   const canUndo = editState.undoStack.length > 0;
@@ -233,9 +268,22 @@ export function BudgetAdjustModal({
     editDispatch({ type: 'COMMIT' });
   }, []);
 
-  const handleBulkAdjust = useCallback((field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number, compound: boolean) => {
-    editDispatch({ type: 'BULK_ADJUST', field, fromMonth, multiplier, min, compound });
-  }, []);
+  // Bulk adjust state
+  const [adjustPct, setAdjustPct] = useState('');
+  const [adjustFrom, setAdjustFrom] = useState('0');
+  const [adjustDir, setAdjustDir] = useState<'reduce' | 'increase'>('reduce');
+  const [adjustMode, setAdjustMode] = useState<'once' | 'compound'>('once');
+  const [adjustField, setAdjustField] = useState<BudgetFieldKey>('consumption');
+
+  function handleApplyAdjust(field: BudgetFieldKey) {
+    const pct = parseFloat(adjustPct);
+    if (isNaN(pct) || pct <= 0) return;
+    const fromMonth = parseInt(adjustFrom);
+    const multiplier = adjustDir === 'reduce' ? 1 - pct / 100 : 1 + pct / 100;
+    const min = field === 'efficiency' ? 1 : 0;
+    editDispatch({ type: 'BULK_ADJUST', field, fromMonth, multiplier, min, compound: adjustMode === 'compound' });
+    setAdjustPct('');
+  }
 
   const handleUndo = useCallback(() => {
     editDispatch({ type: 'UNDO' });
@@ -331,6 +379,19 @@ export function BudgetAdjustModal({
                     type="number"
                     value={unitCostInput}
                     onChange={(e) => setUnitCostInput(e.target.value)}
+                    onBlur={() => {
+                      const parsed = parseFloat(unitCostInput);
+                      if (!isNaN(parsed) && parsed >= 0 && parsed !== localUnitCost) {
+                        editDispatch({ type: 'SET_UNIT_COST', value: parsed });
+                      } else {
+                        setUnitCostInput(String(localUnitCost));
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
                     onFocus={(e) => e.target.select()}
                     min="0"
                     step="any"
@@ -402,7 +463,7 @@ export function BudgetAdjustModal({
 
           {/* Main tabs */}
           <div className="flex gap-1 -mb-px">
-            {([['visual', 'Vis Edit'], ['table', 'Tab Edit'], ['calcs', 'Table']] as const).map(([id, label]) => (
+            {([['visual', 'Drag'], ['table', 'Edit'], ['calcs', 'Review']] as const).map(([id, label]) => (
               <button
                 key={id}
                 onClick={() => setModalTab(id)}
@@ -517,34 +578,6 @@ export function BudgetAdjustModal({
                   </div>
                 </div>
               </div>
-
-              {/* Mini bar chart */}
-              {(() => {
-                const maxCost = Math.max(...currentMonthlyCosts, 1);
-                return (
-                  <div className="flex-1 min-h-0 px-4 py-4 border-t border-gray-200">
-                    <div className="flex items-end gap-2 h-full">
-                      {currentMonthlyCosts.map((cost, i) => {
-                        const heightPct = (cost / maxCost) * 100;
-                        return (
-                          <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
-                            <div className="text-[9px] text-gray-500 mb-0.5 tabular-nums">
-                              {cost > 0 ? formatCurrency(cost) : ''}
-                            </div>
-                            <div
-                              className={`w-full rounded-t ${color || 'bg-blue-400'}`}
-                              style={{ height: `${Math.max(heightPct, 1)}%`, opacity: 0.7 }}
-                            />
-                            <div className="text-[9px] text-gray-400 mt-1">
-                              {monthLabels[i].split(' ')[0].slice(0, 3)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -586,7 +619,6 @@ export function BudgetAdjustModal({
                   min={0}
                   onValueChange={handleValueChange}
                   onCommit={handleCommit}
-                  onBulkAdjust={handleBulkAdjust}
                 />
               )}
               {visualField === 'efficiency' && (
@@ -601,7 +633,6 @@ export function BudgetAdjustModal({
                   formatValue={(v) => `${v}%`}
                   onValueChange={handleValueChange}
                   onCommit={handleCommit}
-                  onBulkAdjust={handleBulkAdjust}
                 />
               )}
             </div>
@@ -696,6 +727,76 @@ export function BudgetAdjustModal({
             </div>
           )}
         </div>
+
+        {/* Adjust toolbar — sticky above footer, Drag & Edit tabs */}
+        {(modalTab === 'visual' || modalTab === 'table') && (() => {
+          const activeField = modalTab === 'visual' ? visualField : adjustField;
+          return (
+            <div className="px-6 py-2.5 border-t border-gray-200 bg-gray-50 shrink-0 flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500 font-medium shrink-0">Adjust</span>
+              {modalTab === 'table' ? (
+                <select
+                  value={adjustField}
+                  onChange={(e) => setAdjustField(e.target.value as BudgetFieldKey)}
+                  className="border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="consumption">Consumption</option>
+                  <option value="efficiency">Efficiency</option>
+                  <option value="overhead">Overhead</option>
+                </select>
+              ) : (
+                <span className="text-xs text-gray-700 font-medium">{visualField}:</span>
+              )}
+              <select
+                value={adjustDir}
+                onChange={(e) => setAdjustDir(e.target.value as 'reduce' | 'increase')}
+                className="border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="reduce">Reduce by</option>
+                <option value="increase">Increase by</option>
+              </select>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={adjustPct}
+                  onChange={(e) => setAdjustPct(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleApplyAdjust(activeField)}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="5"
+                  className="w-16 border border-gray-300 rounded px-2 py-1.5 text-xs text-right pr-5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+              </div>
+              <select
+                value={adjustMode}
+                onChange={(e) => setAdjustMode(e.target.value as 'once' | 'compound')}
+                className="border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="once">one-off</option>
+                <option value="compound">per month</option>
+              </select>
+              <span className="text-xs text-gray-500 shrink-0">from</span>
+              <select
+                value={adjustFrom}
+                onChange={(e) => setAdjustFrom(e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {monthLabels.map((lbl, i) => (
+                  <option key={i} value={String(i)}>{lbl}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => handleApplyAdjust(activeField)}
+                disabled={!adjustPct || parseFloat(adjustPct) <= 0}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+              >
+                Apply
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between shrink-0">

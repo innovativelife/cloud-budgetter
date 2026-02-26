@@ -111,11 +111,16 @@ function migrateState(raw: Record<string, unknown>): AppState {
   return state;
 }
 
-function createServiceBudget(defaultEfficiency: number, defaultOverhead: number): ServiceBudget {
+function createServiceBudget(
+  defaultEfficiency: number,
+  defaultOverhead: number,
+  seed?: { consumption: number; monthlyGrowth: number }
+): ServiceBudget {
   const budget: ServiceBudget = {};
   for (let i = 0; i < 12; i++) {
+    const consumption = seed ? seed.consumption + seed.monthlyGrowth * i : 0;
     budget[i] = {
-      consumption: { value: 0, isOverridden: false },
+      consumption: { value: Math.max(consumption, 0), isOverridden: i > 0 && seed ? true : false },
       efficiency: { value: defaultEfficiency, isOverridden: false },
       overhead: { value: defaultOverhead, isOverridden: false },
       discount: { value: 0, isOverridden: false },
@@ -139,7 +144,7 @@ type AppAction =
   | { type: 'DELETE_VERSION'; payload: { versionNumber: number } }
   | { type: 'TOGGLE_VERSION_SHARED'; payload: { versionNumber: number } }
   // Service actions (operate on active model)
-  | { type: 'ADD_SERVICE'; payload: Omit<Service, 'id' | 'createdAt'> }
+  | { type: 'ADD_SERVICE'; payload: Omit<Service, 'id' | 'createdAt'>; seed?: { consumption: number; monthlyGrowth: number } }
   | { type: 'UPDATE_SERVICE'; payload: Service }
   | { type: 'DELETE_SERVICE'; payload: string }
   // Budget actions (operate on active model)
@@ -346,7 +351,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
       const newBudget = createServiceBudget(
         newService.defaultEfficiency,
-        newService.defaultOverhead
+        newService.defaultOverhead,
+        action.seed
       );
       return updateActiveModelData(state, (data) => ({
         ...data,
