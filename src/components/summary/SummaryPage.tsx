@@ -7,6 +7,7 @@ import { BudgetAdjustModal } from '../budget/BudgetAdjustModal';
 import { ServiceFormModal } from '../services/ServiceFormModal';
 import type { InitialBudgetSeed } from '../services/ServiceFormModal';
 import { SERVICE_COLORS, getServiceColor } from '../../utils/serviceColors';
+import { exportExcelReport } from '../../utils/excelExport';
 import type { Service } from '../../types';
 
 const FILL_COLORS = [
@@ -126,6 +127,13 @@ export function SummaryPage() {
         <span className="text-xs text-blue-600 font-medium">Annual Total</span>
         <span className="text-xl font-bold text-blue-900">{formatCurrency(grandTotal)}</span>
         <span className="text-xs text-blue-500">Avg. {formatCurrency(grandTotal / 12)} / mo</span>
+        <button
+          onClick={() => activeModel && exportExcelReport(activeModel)}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 font-medium rounded-md transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+          Export .xlsx
+        </button>
       </div>
 
       {/* Sub-tabs */}
