@@ -63,6 +63,7 @@ interface EditState {
 
 type EditAction =
   | { type: 'SET_VALUE'; monthIndex: number; field: BudgetFieldKey; value: number }
+  | { type: 'BULK_ADJUST'; field: BudgetFieldKey; fromMonth: number; multiplier: number; min: number }
   | { type: 'COMMIT' }
   | { type: 'UNDO' }
   | { type: 'REDO' };
@@ -82,6 +83,22 @@ function editReducer(state: EditState, action: EditAction): EditState {
         }
       }
       return { ...state, current: next, preChange };
+    }
+    case 'BULK_ADJUST': {
+      const { field, fromMonth, multiplier, min } = action;
+      const snapshot = deepCloneBudget(state.current);
+      const next = deepCloneBudget(state.current);
+      for (let m = fromMonth; m < 12; m++) {
+        const current = next[m][field].value;
+        const newVal = Math.max(min, Math.round(current * multiplier));
+        next[m][field] = { value: newVal, isOverridden: m > 0 };
+      }
+      return {
+        current: next,
+        undoStack: [...state.undoStack, snapshot],
+        redoStack: [],
+        preChange: null,
+      };
     }
     case 'COMMIT': {
       if (!state.preChange) return state;
@@ -155,6 +172,10 @@ export function BudgetAdjustModal({
 
   const handleCommit = useCallback(() => {
     editDispatch({ type: 'COMMIT' });
+  }, []);
+
+  const handleBulkAdjust = useCallback((field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number) => {
+    editDispatch({ type: 'BULK_ADJUST', field, fromMonth, multiplier, min });
   }, []);
 
   const handleUndo = useCallback(() => {
@@ -306,6 +327,7 @@ export function BudgetAdjustModal({
               min={0}
               onValueChange={handleValueChange}
               onCommit={handleCommit}
+              onBulkAdjust={handleBulkAdjust}
             />
           )}
           {activeTab === 'efficiency' && (
@@ -321,6 +343,7 @@ export function BudgetAdjustModal({
               formatValue={(v) => `${v}%`}
               onValueChange={handleValueChange}
               onCommit={handleCommit}
+              onBulkAdjust={handleBulkAdjust}
             />
           )}
 

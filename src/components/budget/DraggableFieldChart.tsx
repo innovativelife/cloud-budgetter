@@ -13,6 +13,7 @@ interface DraggableFieldChartProps {
   formatValue?: (v: number) => string;
   onValueChange: (monthIndex: number, field: BudgetFieldKey, value: number) => void;
   onCommit: () => void;
+  onBulkAdjust: (field: BudgetFieldKey, fromMonth: number, multiplier: number, min: number) => void;
 }
 
 export function DraggableFieldChart({
@@ -27,6 +28,7 @@ export function DraggableFieldChart({
   formatValue,
   onValueChange,
   onCommit,
+  onBulkAdjust,
 }: DraggableFieldChartProps) {
   const [adjustPct, setAdjustPct] = useState('');
   const [adjustFrom, setAdjustFrom] = useState('0');
@@ -81,12 +83,7 @@ export function DraggableFieldChart({
     if (isNaN(pct) || pct <= 0) return;
     const fromMonth = parseInt(adjustFrom);
     const multiplier = adjustDir === 'reduce' ? 1 - pct / 100 : 1 + pct / 100;
-    for (let m = fromMonth; m < 12; m++) {
-      const current = serviceBudget[m][field].value;
-      const newVal = Math.max(min, Math.round(current * multiplier));
-      onValueChange(m, field, newVal);
-    }
-    onCommit();
+    onBulkAdjust(field, fromMonth, multiplier, min);
     setAdjustPct('');
   }
 

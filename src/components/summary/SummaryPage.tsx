@@ -13,7 +13,7 @@ const SERVICE_COLORS = [
   'bg-pink-500', 'bg-indigo-500', 'bg-lime-500', 'bg-fuchsia-500',
 ];
 
-type SummaryTab = 'chart' | 'details';
+type SummaryTab = 'chart' | 'annual' | 'monthly';
 
 export function SummaryPage() {
   const { activeModel, dispatch } = useAppState();
@@ -122,14 +122,24 @@ export function SummaryPage() {
           Chart
         </button>
         <button
-          onClick={() => setActiveTab('details')}
+          onClick={() => setActiveTab('annual')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'details'
+            activeTab === 'annual'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Details
+          Annual
+        </button>
+        <button
+          onClick={() => setActiveTab('monthly')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'monthly'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Monthly
         </button>
       </div>
 
@@ -190,108 +200,100 @@ export function SummaryPage() {
         </div>
       )}
 
-      {activeTab === 'details' && (
-        <div>
-          {/* By Service table */}
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Annual</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-3 font-medium text-gray-600">Service</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-600">Annual Total</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-600">Monthly Avg</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-600">% of Total</th>
+      {activeTab === 'annual' && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 px-3 font-medium text-gray-600">Service</th>
+                <th className="text-right py-2 px-3 font-medium text-gray-600">Annual Total</th>
+                <th className="text-right py-2 px-3 font-medium text-gray-600">Monthly Avg</th>
+                <th className="text-right py-2 px-3 font-medium text-gray-600">% of Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {services.map((service, idx) => {
+                const svcTotal = costByService[service.id] ?? 0;
+                const pct = grandTotal > 0 ? (svcTotal / grandTotal) * 100 : 0;
+                return (
+                  <tr key={service.id} className="hover:bg-gray-50">
+                    <td className="py-2 px-3 font-medium text-gray-900">
+                      <button
+                        onClick={() => setAdjustServiceId(service.id)}
+                        className="flex items-center gap-2 hover:text-blue-600 transition-colors"
+                      >
+                        <span className={`w-3 h-3 rounded-sm inline-block ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
+                        <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
+                      </button>
+                    </td>
+                    <td className="py-2 px-3 text-right">{formatCurrency(svcTotal)}</td>
+                    <td className="py-2 px-3 text-right text-gray-600">{formatCurrency(svcTotal / 12)}</td>
+                    <td className="py-2 px-3 text-right text-gray-600">{pct.toFixed(1)}%</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {services.map((service, idx) => {
-                    const svcTotal = costByService[service.id] ?? 0;
-                    const pct = grandTotal > 0 ? (svcTotal / grandTotal) * 100 : 0;
-                    return (
-                      <tr key={service.id} className="hover:bg-gray-50">
-                        <td className="py-2 px-3 font-medium text-gray-900">
-                          <button
-                            onClick={() => setAdjustServiceId(service.id)}
-                            className="flex items-center gap-2 hover:text-blue-600 transition-colors"
-                          >
-                            <span className={`w-3 h-3 rounded-sm inline-block ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
-                            <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
-                          </button>
-                        </td>
-                        <td className="py-2 px-3 text-right">{formatCurrency(svcTotal)}</td>
-                        <td className="py-2 px-3 text-right text-gray-600">{formatCurrency(svcTotal / 12)}</td>
-                        <td className="py-2 px-3 text-right text-gray-600">{pct.toFixed(1)}%</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300 font-semibold">
-                    <td className="py-2 px-3">Total</td>
-                    <td className="py-2 px-3 text-right">{formatCurrency(grandTotal)}</td>
-                    <td className="py-2 px-3 text-right">{formatCurrency(grandTotal / 12)}</td>
-                    <td className="py-2 px-3 text-right">100%</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-300 font-semibold">
+                <td className="py-2 px-3">Total</td>
+                <td className="py-2 px-3 text-right">{formatCurrency(grandTotal)}</td>
+                <td className="py-2 px-3 text-right">{formatCurrency(grandTotal / 12)}</td>
+                <td className="py-2 px-3 text-right">100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
 
-          {/* Monthly Breakdown table */}
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Monthly</h3>
-            <div className="overflow-x-auto">
-              <table className="text-xs w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-2 font-medium text-gray-600 sticky left-0 bg-white min-w-[120px]">
-                      Service
-                    </th>
-                    {monthLabels.map((label, i) => (
-                      <th key={i} className="text-right py-2 px-2 font-medium text-gray-600 min-w-[90px]">
-                        {label}
-                      </th>
-                    ))}
-                    <th className="text-right py-2 px-2 font-medium text-gray-600 min-w-[100px] sticky right-0 bg-white">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {services.map((service, idx) => (
-                    <tr key={service.id} className="hover:bg-gray-50">
-                      <td className="py-2 px-2 font-medium text-gray-900 sticky left-0 bg-white">
-                        <button
-                          onClick={() => setAdjustServiceId(service.id)}
-                          className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
-                        >
-                          <span className={`w-2.5 h-2.5 rounded-sm inline-block shrink-0 ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
-                          <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
-                        </button>
-                      </td>
-                      {(costGrid[service.id] ?? []).map((cost, i) => (
-                        <td key={i} className="py-2 px-2 text-right text-gray-700">
-                          {formatCurrency(cost)}
-                        </td>
-                      ))}
-                      <td className="py-2 px-2 text-right font-semibold sticky right-0 bg-white">
-                        {formatCurrency(costByService[service.id] ?? 0)}
-                      </td>
-                    </tr>
+      {activeTab === 'monthly' && (
+        <div className="overflow-x-auto">
+          <table className="text-xs w-full">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-2 px-2 font-medium text-gray-600 sticky left-0 bg-white min-w-[120px]">
+                  Service
+                </th>
+                {monthLabels.map((label, i) => (
+                  <th key={i} className="text-right py-2 px-2 font-medium text-gray-600 min-w-[90px]">
+                    {label}
+                  </th>
+                ))}
+                <th className="text-right py-2 px-2 font-medium text-gray-600 min-w-[100px] sticky right-0 bg-white">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {services.map((service, idx) => (
+                <tr key={service.id} className="hover:bg-gray-50">
+                  <td className="py-2 px-2 font-medium text-gray-900 sticky left-0 bg-white">
+                    <button
+                      onClick={() => setAdjustServiceId(service.id)}
+                      className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-sm inline-block shrink-0 ${SERVICE_COLORS[idx % SERVICE_COLORS.length]}`} />
+                      <span className="underline decoration-gray-300 hover:decoration-blue-500 underline-offset-2">{service.name}</span>
+                    </button>
+                  </td>
+                  {(costGrid[service.id] ?? []).map((cost, i) => (
+                    <td key={i} className="py-2 px-2 text-right text-gray-700">
+                      {formatCurrency(cost)}
+                    </td>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-300 font-semibold">
-                    <td className="py-2 px-2 sticky left-0 bg-white">Total</td>
-                    {costByMonth.map((cost, i) => (
-                      <td key={i} className="py-2 px-2 text-right">{formatCurrency(cost)}</td>
-                    ))}
-                    <td className="py-2 px-2 text-right sticky right-0 bg-white">{formatCurrency(grandTotal)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+                  <td className="py-2 px-2 text-right font-semibold sticky right-0 bg-white">
+                    {formatCurrency(costByService[service.id] ?? 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-300 font-semibold">
+                <td className="py-2 px-2 sticky left-0 bg-white">Total</td>
+                {costByMonth.map((cost, i) => (
+                  <td key={i} className="py-2 px-2 text-right">{formatCurrency(cost)}</td>
+                ))}
+                <td className="py-2 px-2 text-right sticky right-0 bg-white">{formatCurrency(grandTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
 
